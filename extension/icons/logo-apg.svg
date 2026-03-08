@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 80">
+  <!-- APG Logo - White version for dark backgrounds -->
+  <g transform="translate(0, 5)">
+    <!-- Airplane box -->
+    <rect x="0" y="8" width="50" height="38" rx="3" fill="white"/>
+    <path d="M10 27 L25 18 L40 27 L32 27 L32 35 L18 35 L18 27 Z" fill="#2D2F6D"/>
+    <line x1="5" y1="32" x2="45" y2="32" stroke="#2D2F6D" stroke-width="1.5"/>
+    <!-- APG Text -->
+    <text x="58" y="38" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="36" fill="white" letter-spacing="2">APG</text>
+    <!-- Subtitle -->
+    <text x="58" y="12" font-family="Arial, sans-serif" font-size="6.5" fill="rgba(255,255,255,0.7)" letter-spacing="3.5">A I R    P R O M O T I O N    G R O U P</text>
+  </g>
+  <!-- Tagline -->
+  <text x="0" y="68" font-family="Arial, sans-serif" font-weight="600" font-size="11" fill="#E8871E" letter-spacing="0.3">The Network for Airline Services</text>
+</svg>
