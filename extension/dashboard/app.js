@@ -9,7 +9,9 @@ let appState = {
   results: null,
   processing: false,
   startTime: null,
-  timerInterval: null
+  timerInterval: null,
+  port: null, // Long-lived connection to service worker
+  bspLinkStatus: null
 };
 
 // ---- Navigation ----
@@ -188,7 +190,7 @@ async function startProcessing() {
     addLog('Mode DEMO active - donnees simulees', 'warning');
     await runMockProcessing();
   } else {
-    addLog('Mode LIVE - connexion a BSP Link...', 'info');
+    addLog('Mode LIVE - verification de la connexion BSP Link...', 'info');
     await runLiveProcessing();
   }
 }
@@ -216,36 +218,43 @@ async function runMockProcessing() {
 }
 
 async function runLiveProcessing() {
-  // Send message to service worker to start scraping
   try {
-    const port = chrome.runtime.connect({ name: 'processing' });
+    // Check if chrome.runtime is available (extension context)
+    if (typeof chrome === 'undefined' || !chrome.runtime?.connect) {
+      addLog('Erreur: Extension Chrome non detectee. Ouvrez cette page depuis l\'extension.', 'error');
+      showToast('Extension Chrome non detectee', 'error');
+      appState.processing = false;
+      stopTimer();
+      return;
+    }
 
-    port.postMessage({
-      type: 'START_PROCESSING',
-      payload: {
-        rows: appState.parsedData.rows,
-        iataColumn: appState.columnMapping.iataCode,
-        countryColumn: appState.columnMapping.country,
-        mode: 'live'
-      }
-    });
+    const port = chrome.runtime.connect({ name: 'processing' });
+    appState.port = port;
+
+    // First check BSP Link status
+    addLog('Verification de la connexion a BSP Link...', 'info');
+    port.postMessage({ type: 'CHECK_BSP_LINK' });
 
     port.onMessage.addListener((msg) => {
       switch (msg.type) {
+        case 'BSP_LINK_STATUS':
+          handleBSPLinkStatus(msg.payload, port);
+          break;
         case 'PROGRESS_UPDATE':
-          updateProgress(msg.payload);
+          handleProgressUpdate(msg.payload);
           break;
         case 'PROCESSING_COMPLETE':
-          appState.results = msg.payload.results;
-          appState.processing = false;
-          stopTimer();
-          onProcessingComplete(msg.payload.results);
+          handleProcessingComplete(msg.payload);
           break;
         case 'PROCESSING_ERROR':
-          appState.processing = false;
-          stopTimer();
-          addLog(`Erreur: ${msg.payload.message}`, 'error');
-          showToast(msg.payload.message, 'error');
+          handleProcessingError(msg.payload);
+          break;
+        case 'PROCESSING_CANCELLED':
+          addLog('Traitement annule. Resultats partiels conserves.', 'warning');
+          if (msg.payload.results?.length > 0) {
+            appState.results = msg.payload.results;
+            onProcessingComplete(msg.payload.results, true);
+          }
           break;
       }
     });
@@ -253,7 +262,9 @@ async function runLiveProcessing() {
     port.onDisconnect.addListener(() => {
       if (appState.processing) {
         addLog('Connexion perdue avec le service worker', 'error');
+        showToast('Connexion perdue - le traitement continue en arriere-plan', 'error');
       }
+      appState.port = null;
     });
   } catch (err) {
     appState.processing = false;
@@ -263,6 +274,96 @@ async function runLiveProcessing() {
   }
 }
 
+function handleBSPLinkStatus(status, port) {
+  appState.bspLinkStatus = status;
+
+  if (!status.found) {
+    addLog('BSP Link non trouve! Ouvrez bsplink.iata.org dans un onglet.', 'error');
+    addLog('Puis connectez-vous avec vos identifiants IATA.', 'info');
+    showToast('Ouvrez BSP Link et connectez-vous d\'abord', 'error');
+    appState.processing = false;
+    stopTimer();
+    return;
+  }
+
+  if (!status.isLoggedIn) {
+    addLog('BSP Link ouvert mais non connecte!', 'error');
+    addLog('Connectez-vous a BSP Link puis relancez le traitement.', 'info');
+    showToast('Connectez-vous a BSP Link d\'abord', 'error');
+    appState.processing = false;
+    stopTimer();
+    return;
+  }
+
+  // BSP Link is ready - start processing
+  addLog(`BSP Link connecte - Pays actuel: ${status.country || 'inconnu'}`, 'success');
+  addLog('Lancement du scraping...', 'info');
+
+  port.postMessage({
+    type: 'START_PROCESSING',
+    payload: {
+      rows: appState.parsedData.rows,
+      iataColumn: appState.columnMapping.iataCode,
+      countryColumn: appState.columnMapping.country,
+      mode: 'live'
+    }
+  });
+}
+
+function handleProgressUpdate(payload) {
+  switch (payload.type) {
+    case 'init':
+      addLog(`${payload.totalCountries} pays a traiter, ${payload.totalRows} lignes`, 'info');
+      break;
+
+    case 'country_switch':
+      document.getElementById('progressCountry').textContent =
+        `${payload.country} (${payload.countryIndex}/${payload.totalCountries})`;
+      addLog(`Pays: ${payload.country} (${payload.countryIndex}/${payload.totalCountries})`, 'country');
+      break;
+
+    case 'country_scraped':
+      addLog(`  -> ${payload.agentsFound} agents trouves (${payload.pages} page${payload.pages > 1 ? 's' : ''})`, 'success');
+      break;
+
+    case 'country_error':
+      addLog(`  ERREUR ${payload.country}: ${payload.error}`, 'error');
+      break;
+
+    case 'country_warning':
+      addLog(`  ATTENTION ${payload.country}: ${payload.warning}`, 'warning');
+      break;
+
+    case 'row_result':
+      updateProgressBar(payload);
+      const statusIcon = payload.lookupStatus === 'found' ? 'OK' :
+                         payload.lookupStatus === 'error' ? 'ERR' : '??';
+      addLog(
+        `[${statusIcon}] ${payload.iataCode} - ${payload.agentStatus} / ${payload.ticketingAuthority}`,
+        payload.lookupStatus === 'found' ? 'success' :
+        payload.lookupStatus === 'error' ? 'error' : 'warning'
+      );
+      break;
+
+    case 'paused':
+      addLog('Traitement en pause...', 'warning');
+      break;
+
+    case 'resumed':
+      addLog('Reprise du traitement', 'info');
+      break;
+  }
+}
+
+function updateProgressBar(payload) {
+  const { completed, total, percent } = payload;
+  const pct = percent || Math.round((completed / total) * 100);
+  document.getElementById('progressPercent').textContent = `${pct}%`;
+  document.getElementById('progressCompleted').textContent = `${completed} / ${total}`;
+  document.getElementById('progressFill').style.width = `${pct}%`;
+}
+
+// Legacy updateProgress for mock mode
 function updateProgress(progress) {
   const { completed, total, percent, type, country, countryName } = progress;
 
@@ -273,11 +374,7 @@ function updateProgress(progress) {
   }
 
   if (type === 'row_result') {
-    const pct = percent || Math.round((completed / total) * 100);
-    document.getElementById('progressPercent').textContent = `${pct}%`;
-    document.getElementById('progressCompleted').textContent = `${completed} / ${total}`;
-    document.getElementById('progressFill').style.width = `${pct}%`;
-
+    updateProgressBar(progress);
     const statusIcon = progress.lookupStatus === 'found' ? 'OK' : '??';
     addLog(
       `[${statusIcon}] ${progress.iataCode} - ${progress.agentStatus} / ${progress.ticketingAuthority}`,
@@ -286,39 +383,83 @@ function updateProgress(progress) {
   }
 }
 
+function handleProcessingComplete(payload) {
+  appState.results = payload.results;
+  appState.processing = false;
+  stopTimer();
+
+  if (payload.errors?.length > 0) {
+    addLog(`Traitement termine avec ${payload.errors.length} erreur(s) par pays`, 'warning');
+    for (const err of payload.errors) {
+      addLog(`  Pays ${err.country}: ${err.error}`, 'error');
+    }
+  }
+
+  if (payload.skippedCountries?.length > 0) {
+    addLog(`Pays ignores: ${payload.skippedCountries.join(', ')}`, 'warning');
+  }
+
+  onProcessingComplete(payload.results);
+}
+
+function handleProcessingError(payload) {
+  appState.processing = false;
+  stopTimer();
+  addLog(`Erreur fatale: ${payload.message}`, 'error');
+
+  if (payload.partialResults?.length > 0) {
+    addLog(`${payload.completed} resultats partiels sauvegardes`, 'warning');
+    appState.results = payload.partialResults;
+    onProcessingComplete(payload.partialResults, true);
+  } else {
+    showToast(payload.message, 'error');
+  }
+}
+
 let isPaused = false;
 function togglePause() {
   isPaused = !isPaused;
   const btn = document.getElementById('pauseProcessing');
+
+  if (appState.port) {
+    appState.port.postMessage({ type: isPaused ? 'PAUSE_PROCESSING' : 'RESUME_PROCESSING' });
+  }
+
   if (isPaused) {
     btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Reprendre';
-    addLog('Traitement en pause', 'warning');
+    if (appState.timerInterval) stopTimer();
   } else {
     btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
-    addLog('Reprise du traitement', 'info');
+    startTimer();
   }
 }
 
 function cancelProcessing() {
+  if (appState.port) {
+    appState.port.postMessage({ type: 'CANCEL_PROCESSING' });
+  }
   appState.processing = false;
+  isPaused = false;
   stopTimer();
   addLog('Traitement annule par l\'utilisateur', 'error');
   showToast('Traitement annule', 'error');
 }
 
 // ---- Processing Complete ----
-function onProcessingComplete(results) {
-  addLog(`Traitement termine: ${results.length} codes traites`, 'success');
-  showToast('Traitement termine!', 'success');
+function onProcessingComplete(results, isPartial = false) {
+  const label = isPartial ? 'Resultats partiels' : 'Traitement termine';
+  addLog(`${label}: ${results.length} codes traites`, 'success');
+  showToast(`${label}!`, isPartial ? 'info' : 'success');
 
   // Build summary
   const found = results.filter(r => r.lookupStatus === 'found').length;
   const notFound = results.filter(r => r.lookupStatus === 'not_found').length;
+  const errors = results.filter(r => r.lookupStatus === 'error').length;
   const enabled = results.filter(r => r.ticketingAuthority === 'Enabled').length;
   const disabled = results.filter(r => r.ticketingAuthority === 'Disabled').length;
 
   document.getElementById('resultFound').textContent = found;
-  document.getElementById('resultNotFound').textContent = notFound;
+  document.getElementById('resultNotFound').textContent = notFound + errors;
   document.getElementById('resultEnabled').textContent = enabled;
   document.getElementById('resultDisabled').textContent = disabled;
 
@@ -329,7 +470,7 @@ function onProcessingComplete(results) {
   document.getElementById('resultsContent').classList.remove('hidden');
 
   // Save to history
-  saveToHistory(results);
+  saveToHistory(results, isPartial);
 
   // Auto switch to results after 1s
   setTimeout(() => switchSection('results'), 1000);
@@ -345,12 +486,15 @@ function buildResultsTable(results) {
   const tbody = document.getElementById('resultsBody');
   tbody.innerHTML = results.map(r => {
     const statusClass = r.agentStatus === 'Active' ? 'status-active' :
-                        r.agentStatus === 'Inactive' ? 'status-inactive' : '';
+                        r.agentStatus === 'Inactive' ? 'status-inactive' :
+                        r.agentStatus === 'Error' ? 'status-inactive' : '';
     const taClass = r.ticketingAuthority === 'Enabled' ? 'status-enabled' :
                     r.ticketingAuthority === 'Disabled' ? 'status-disabled' :
                     'status-notfound';
     const lookupBadge = r.lookupStatus === 'found' ?
       '<span class="status-enabled">Trouve</span>' :
+      r.lookupStatus === 'error' ?
+      '<span class="status-disabled">Erreur</span>' :
       '<span class="status-notfound">Non trouve</span>';
 
     return `<tr>
@@ -412,16 +556,18 @@ document.getElementById('sendToServer').addEventListener('click', async () => {
 });
 
 // ---- History ----
-async function saveToHistory(results) {
+async function saveToHistory(results, isPartial = false) {
   if (typeof chrome !== 'undefined' && chrome.storage) {
     await StorageHelper.addToHistory({
       fileName: appState.file?.name || 'Inconnu',
       totalRows: appState.parsedData?.rows?.length || 0,
       found: results.filter(r => r.lookupStatus === 'found').length,
       notFound: results.filter(r => r.lookupStatus === 'not_found').length,
+      errors: results.filter(r => r.lookupStatus === 'error').length,
       enabled: results.filter(r => r.ticketingAuthority === 'Enabled').length,
       disabled: results.filter(r => r.ticketingAuthority === 'Disabled').length,
-      mode: document.getElementById('mockMode').checked ? 'demo' : 'live'
+      mode: document.getElementById('mockMode').checked ? 'demo' : 'live',
+      isPartial
     });
     loadHistory();
   }
@@ -445,16 +591,19 @@ async function loadHistory() {
       const d = new Date(h.date);
       const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
       const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const modeLabel = h.mode === 'demo' ? 'DEMO' : 'LIVE';
+      const partialLabel = h.isPartial ? ' (partiel)' : '';
 
       return `<div class="history-item">
         <div class="history-date">${dateStr}<br>${timeStr}</div>
         <div class="history-file">${escapeHtml(h.fileName)}
-          <span class="badge">${h.mode === 'demo' ? 'DEMO' : 'LIVE'}</span>
+          <span class="badge">${modeLabel}${partialLabel}</span>
         </div>
         <div class="history-stats">
           <span>Lignes: <span class="count">${h.totalRows}</span></span>
           <span>Trouves: <span class="count">${h.found}</span></span>
           <span>Enabled: <span class="count">${h.enabled}</span></span>
+          ${h.errors ? `<span>Erreurs: <span class="count">${h.errors}</span></span>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -465,7 +614,7 @@ async function loadHistory() {
 
 // ---- Timer ----
 function startTimer() {
-  appState.startTime = Date.now();
+  if (!appState.startTime) appState.startTime = Date.now();
   appState.timerInterval = setInterval(() => {
     const elapsed = Math.floor((Date.now() - appState.startTime) / 1000);
     const min = String(Math.floor(elapsed / 60)).padStart(2, '0');
