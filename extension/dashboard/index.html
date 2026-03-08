@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APG BSP Link - Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img src="../icons/icon48.png" alt="APG" class="logo">
+      <div>
+        <h1>APG BSP Link</h1>
+        <span class="version">v1.0.0</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-section="upload">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload Excel
+      </a>
+      <a href="#" class="nav-item" data-section="processing">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Traitement
+      </a>
+      <a href="#" class="nav-item" data-section="results">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Resultats
+      </a>
+      <a href="#" class="nav-item" data-section="history">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><path d="M2 12h2"/></svg>
+        Historique
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="mode-toggle">
+        <label class="toggle-label">
+          <input type="checkbox" id="mockMode" checked>
+          <span class="toggle-slider"></span>
+          Mode Demo
+        </label>
+      </div>
+      <p class="footer-text">APG Airlines<br>Risk Management</p>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Upload Section -->
+    <section id="section-upload" class="section active">
+      <div class="section-header">
+        <h2>Upload du fichier eBulletin</h2>
+        <p>Importez votre fichier Excel BSP Link hebdomadaire</p>
+      </div>
+
+      <div class="upload-zone" id="uploadZone">
+        <div class="upload-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#F5A623" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <p class="upload-text">Glissez votre fichier Excel ici</p>
+        <p class="upload-subtext">ou cliquez pour parcourir</p>
+        <p class="upload-formats">Formats acceptes : .xlsx, .xls, .csv</p>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      </div>
+
+      <!-- File Info (hidden until file selected) -->
+      <div id="fileInfo" class="file-info hidden">
+        <div class="file-card">
+          <div class="file-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="file-details">
+            <span class="file-name" id="fileName">-</span>
+            <span class="file-meta" id="fileMeta">-</span>
+          </div>
+          <button class="btn-icon" id="removeFile" title="Supprimer">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Column Mapping (hidden until file parsed) -->
+      <div id="columnMapping" class="column-mapping hidden">
+        <h3>Configuration des colonnes</h3>
+        <p class="help-text">Selectionnez les colonnes correspondantes dans votre fichier</p>
+        <div class="mapping-grid">
+          <div class="mapping-field">
+            <label for="colIataCode">Colonne Code IATA *</label>
+            <select id="colIataCode"></select>
+          </div>
+          <div class="mapping-field">
+            <label for="colCountry">Colonne Pays BSP *</label>
+            <select id="colCountry"></select>
+          </div>
+          <div class="mapping-field">
+            <label for="colAgencyName">Colonne Nom Agence</label>
+            <select id="colAgencyName"><option value="">-- Optionnel --</option></select>
+          </div>
+          <div class="mapping-field">
+            <label for="colSection">Colonne Section</label>
+            <select id="colSection"><option value="">-- Optionnel --</option></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview Table -->
+      <div id="previewContainer" class="preview-container hidden">
+        <h3>Apercu des donnees <span class="badge" id="rowCount">0 lignes</span></h3>
+        <div class="table-wrapper">
+          <table id="previewTable" class="data-table">
+            <thead id="previewHead"></thead>
+            <tbody id="previewBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div id="uploadActions" class="actions hidden">
+        <button class="btn btn-primary btn-lg" id="startProcessing">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Lancer le traitement
+        </button>
+      </div>
+    </section>
+
+    <!-- Processing Section -->
+    <section id="section-processing" class="section">
+      <div class="section-header">
+        <h2>Traitement en cours</h2>
+        <p id="processingSubtitle">Verification des statuts Ticketing Authority sur BSP Link</p>
+      </div>
+
+      <div class="progress-container">
+        <div class="progress-stats">
+          <div class="stat">
+            <span class="stat-value" id="progressPercent">0%</span>
+            <span class="stat-label">Progression</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="progressCompleted">0 / 0</span>
+            <span class="stat-label">Codes traites</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="progressCountry">-</span>
+            <span class="stat-label">Pays en cours</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="progressTime">00:00</span>
+            <span class="stat-label">Temps ecoule</span>
+          </div>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+        <div class="progress-actions">
+          <button class="btn btn-secondary" id="pauseProcessing">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            Pause
+          </button>
+          <button class="btn btn-danger" id="cancelProcessing">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            Annuler
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Log -->
+      <div class="log-container">
+        <h3>Journal de traitement</h3>
+        <div class="log-entries" id="logEntries">
+          <div class="log-entry log-info">En attente du demarrage...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section id="section-results" class="section">
+      <div class="section-header">
+        <h2>Resultats</h2>
+        <p>Fichier Excel enrichi avec les statuts Ticketing Authority</p>
+      </div>
+
+      <div id="resultsEmpty" class="empty-state">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <p>Aucun resultat disponible</p>
+        <p class="help-text">Uploadez un fichier et lancez un traitement</p>
+      </div>
+
+      <div id="resultsContent" class="hidden">
+        <div class="results-summary">
+          <div class="summary-card success">
+            <span class="summary-value" id="resultFound">0</span>
+            <span class="summary-label">Trouves</span>
+          </div>
+          <div class="summary-card warning">
+            <span class="summary-value" id="resultNotFound">0</span>
+            <span class="summary-label">Non trouves</span>
+          </div>
+          <div class="summary-card info">
+            <span class="summary-value" id="resultEnabled">0</span>
+            <span class="summary-label">TA Enabled</span>
+          </div>
+          <div class="summary-card danger">
+            <span class="summary-value" id="resultDisabled">0</span>
+            <span class="summary-label">TA Disabled</span>
+          </div>
+        </div>
+
+        <div class="results-actions">
+          <button class="btn btn-primary" id="downloadExcel">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Telecharger l'Excel enrichi
+          </button>
+          <button class="btn btn-secondary" id="sendToServer">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+            Envoyer au serveur
+          </button>
+        </div>
+
+        <div class="table-wrapper">
+          <table id="resultsTable" class="data-table">
+            <thead id="resultsHead"></thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- History Section -->
+    <section id="section-history" class="section">
+      <div class="section-header">
+        <h2>Historique des traitements</h2>
+        <p>Retrouvez tous vos traitements precedents</p>
+      </div>
+
+      <div id="historyEmpty" class="empty-state">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <p>Aucun traitement effectue</p>
+      </div>
+
+      <div id="historyContent" class="hidden">
+        <div class="history-list" id="historyList"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="../lib/xlsx.full.min.js"></script>
+  <script src="../utils/country-mapping.js"></script>
+  <script src="../utils/excel-handler.js"></script>
+  <script src="../utils/mock-data.js"></script>
+  <script src="../utils/storage.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

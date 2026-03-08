@@ -1,0 +1,6 @@
+.venv/
+.ipynb_checkpoints/
+top5playersclean.csv
+node_modules/
+server/storage/uploads/
+server/storage/results/

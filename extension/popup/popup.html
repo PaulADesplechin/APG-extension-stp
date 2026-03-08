@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #1a1a2e;
+    }
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header img { width: 32px; height: 32px; border-radius: 6px; }
+    .header h1 { color: #F5A623; font-size: 14px; font-weight: 600; }
+    .header p { color: #a0a0b0; font-size: 11px; margin-top: 2px; }
+    .content { padding: 16px 20px; }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+    .status-badge.idle { background: #e8f5e9; color: #2e7d32; }
+    .status-badge.processing { background: #fff3e0; color: #e65100; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .status-badge.idle .status-dot { background: #4caf50; }
+    .status-badge.processing .status-dot { background: #ff9800; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #F5A623;
+      color: #1a1a2e;
+    }
+    .btn-primary:hover { background: #e6951a; transform: translateY(-1px); }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .stat-card {
+      background: white;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+    .stat-card .value { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+    .stat-card .label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+    .footer {
+      padding: 12px 20px;
+      border-top: 1px solid #e0e0e0;
+      text-align: center;
+    }
+    .footer a { color: #666; font-size: 11px; text-decoration: none; }
+    .footer a:hover { color: #F5A623; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="../icons/icon48.png" alt="APG">
+    <div>
+      <h1>APG BSP Link Checker</h1>
+      <p>Ticketing Authority Status</p>
+    </div>
+  </div>
+  <div class="content">
+    <div class="status-badge idle" id="statusBadge">
+      <span class="status-dot"></span>
+      <span id="statusText">En attente</span>
+    </div>
+    <a href="#" class="btn btn-primary" id="openDashboard">Ouvrir le Dashboard</a>
+    <div class="stats">
+      <div class="stat-card">
+        <div class="value" id="totalProcessed">0</div>
+        <div class="label">Traitements</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="lastDate">-</div>
+        <div class="label">Dernier</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <a href="#">APG Airlines - Risk Management</a>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
