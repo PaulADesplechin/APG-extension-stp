@@ -17,7 +17,8 @@
       align-items: center;
       gap: 12px;
     }
-    .header img { height: 28px; width: auto; }
+    .header .logo-box { background: white; border-radius: 6px; padding: 4px 8px; display: flex; }
+    .header .logo-box img { height: 22px; width: auto; }
     .header h1 { color: #ffffff; font-size: 14px; font-weight: 600; }
     .header p { color: #a0a0b0; font-size: 11px; margin-top: 2px; }
     .header .tagline { color: #E8871E; font-size: 10px; margin-top: 1px; }
@@ -83,10 +84,10 @@
 </head>
 <body>
   <div class="header">
-    <img src="../icons/logo-apg.svg" alt="APG">
+    <div class="logo-box"><img src="../icons/logo-apg.png" alt="APG"></div>
     <div>
       <h1>BSP Link Checker</h1>
-      <p class="tagline">Risk Management</p>
+      <p>Risk Management</p>
     </div>
   </div>
   <div class="content">

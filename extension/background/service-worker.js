@@ -185,13 +185,23 @@ async function handleStartLogin(payload, port) {
       return;
     }
 
-    port.postMessage({
-      type: 'LOGIN_STATUS',
-      payload: {
-        step: 'filled',
-        message: 'Identifiants remplis. Cliquez sur "Se connecter" sur la page IATA puis validez la 2FA.'
-      }
-    });
+    if (fillResult?.submitted) {
+      port.postMessage({
+        type: 'LOGIN_STATUS',
+        payload: {
+          step: 'filled',
+          message: 'Formulaire soumis automatiquement. Attente de la 2FA...'
+        }
+      });
+    } else {
+      port.postMessage({
+        type: 'LOGIN_STATUS',
+        payload: {
+          step: 'filled',
+          message: 'Identifiants remplis. Cliquez sur "Log In" manuellement.'
+        }
+      });
+    }
 
     // Step 5: Start polling for 2FA completion
     startLoginPolling(iataTab.id, port);
