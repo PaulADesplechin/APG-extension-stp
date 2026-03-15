@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const jobsRouter = require('./routes/jobs');
+const ebulletinRouter = require('./routes/ebulletin');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,6 +25,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/jobs', jobsRouter);
+app.use('/api/ebulletin', ebulletinRouter);
 
 // Static files for results download
 app.use('/files', express.static(path.join(__dirname, 'storage/results')));

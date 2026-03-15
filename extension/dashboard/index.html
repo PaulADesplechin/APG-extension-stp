@@ -39,6 +39,24 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/><path d="M2 12h2"/></svg>
         Historique
       </a>
+      <div class="nav-divider"></div>
+      <span class="nav-section-label">Pipeline eBulletin</span>
+      <a href="#" class="nav-item" data-section="cleaning">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Nettoyage
+      </a>
+      <a href="#" class="nav-item" data-section="anomalies">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Anomalies
+      </a>
+      <a href="#" class="nav-item" data-section="analysis">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Analyse
+      </a>
+      <a href="#" class="nav-item" data-section="actions">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Actions & Export
+      </a>
     </nav>
     <div class="sidebar-footer">
       <div class="mode-toggle">
@@ -211,11 +229,96 @@
       </div>
 
       <!-- Actions -->
-      <div id="uploadActions" class="actions hidden">
-        <button class="btn btn-primary btn-lg" id="startProcessing">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Lancer le traitement
+      <div id="uploadActions" class="actions hidden" style="flex-direction: column; gap: 16px;">
+        <button class="btn btn-bot btn-lg" id="btnLaunchBot" style="width: 100%;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          Lancer le Bot eBulletin
         </button>
+        <button class="btn btn-secondary" id="startProcessing">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          BSP Link seulement
+        </button>
+      </div>
+
+      <!-- Bot Pipeline Progress (shown during auto-run) -->
+      <div id="botPipeline" class="bot-pipeline hidden">
+        <div class="bot-header">
+          <div class="bot-avatar">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </div>
+          <div>
+            <h3>APG Bot - Traitement automatique</h3>
+            <span class="bot-status" id="botStatusText">Initialisation...</span>
+          </div>
+        </div>
+        <div class="bot-stages">
+          <div class="bot-stage" id="bot-stage-clean" data-stage="clean">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Nettoyage Excel</strong>
+              <span class="bot-stage-detail" id="bot-detail-clean">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="bot-badge-clean"></span>
+          </div>
+          <div class="bot-stage" id="bot-stage-anomaly" data-stage="anomaly">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Detection anomalies</strong>
+              <span class="bot-stage-detail" id="bot-detail-anomaly">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="bot-badge-anomaly"></span>
+          </div>
+          <div class="bot-stage" id="bot-stage-analysis" data-stage="analysis">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Analyse des actions</strong>
+              <span class="bot-stage-detail" id="bot-detail-analysis">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="bot-badge-analysis"></span>
+          </div>
+          <div class="bot-stage" id="bot-stage-bsplink" data-stage="bsplink">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Verification BSP Link</strong>
+              <span class="bot-stage-detail" id="bot-detail-bsplink">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="bot-badge-bsplink"></span>
+          </div>
+          <div class="bot-stage" id="bot-stage-report" data-stage="report">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Generation rapport & email</strong>
+              <span class="bot-stage-detail" id="bot-detail-report">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="bot-badge-report"></span>
+          </div>
+        </div>
+        <div class="bot-log" id="botLog">
+          <div class="bot-log-entry bot-log-info">Bot initialise. Demarrage du pipeline...</div>
+        </div>
+        <div class="bot-actions hidden" id="botActions">
+          <button class="btn btn-primary" id="botDownloadReport">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Telecharger le rapport complet
+          </button>
+          <button class="btn btn-secondary" id="botViewEmail">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Voir l'email
+          </button>
+          <button class="btn btn-secondary" id="botViewDetails">
+            Voir le detail
+          </button>
+        </div>
       </div>
     </section>
 
@@ -338,6 +441,225 @@
         <div class="history-list" id="historyList"></div>
       </div>
     </section>
+
+    <!-- Cleaning Section -->
+    <section id="section-cleaning" class="section">
+      <div class="section-header">
+        <h2>Nettoyage eBulletin</h2>
+        <p>Nettoyage automatique du fichier eBulletin brut</p>
+      </div>
+      <div class="cleaning-steps">
+        <div class="pipeline-step" id="clean-step-1">
+          <div class="pipeline-icon pending">1</div>
+          <div class="pipeline-info">
+            <strong>Suppression lignes vides</strong>
+            <span class="pipeline-detail">Lignes sans Agency Code</span>
+          </div>
+          <span class="pipeline-stat" id="cleanStat1">-</span>
+        </div>
+        <div class="pipeline-step" id="clean-step-2">
+          <div class="pipeline-icon pending">2</div>
+          <div class="pipeline-info">
+            <strong>Insertion colonnes IATA</strong>
+            <span class="pipeline-detail">Code 7 chiffres + Check Digit</span>
+          </div>
+          <span class="pipeline-stat" id="cleanStat2">-</span>
+        </div>
+        <div class="pipeline-step" id="clean-step-3">
+          <div class="pipeline-icon pending">3</div>
+          <div class="pipeline-info">
+            <strong>Conversion Risk Status</strong>
+            <span class="pipeline-detail">Paste Special Multiply x1</span>
+          </div>
+          <span class="pipeline-stat" id="cleanStat3">-</span>
+        </div>
+        <div class="pipeline-step" id="clean-step-4">
+          <div class="pipeline-icon pending">4</div>
+          <div class="pipeline-info">
+            <strong>Conversion IRR</strong>
+            <span class="pipeline-detail">Paste Special Multiply x1</span>
+          </div>
+          <span class="pipeline-stat" id="cleanStat4">-</span>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 20px;">
+        <button class="btn btn-primary" id="btnRunCleaning" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Lancer le nettoyage
+        </button>
+        <button class="btn btn-secondary" id="btnDownloadCleaned" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Telecharger le fichier nettoye
+        </button>
+      </div>
+    </section>
+
+    <!-- Anomalies Section -->
+    <section id="section-anomalies" class="section">
+      <div class="section-header">
+        <h2>Detection d'Anomalies</h2>
+        <p>Verification automatique des donnees pour identifier les problemes</p>
+      </div>
+      <div class="anomaly-summary" id="anomalySummary">
+        <div class="summary-card danger">
+          <span class="summary-value" id="anomalyHigh">0</span>
+          <span class="summary-label">Haute severite</span>
+        </div>
+        <div class="summary-card warning">
+          <span class="summary-value" id="anomalyMedium">0</span>
+          <span class="summary-label">Moyenne</span>
+        </div>
+        <div class="summary-card info">
+          <span class="summary-value" id="anomalyLow">0</span>
+          <span class="summary-label">Faible</span>
+        </div>
+        <div class="summary-card success">
+          <span class="summary-value" id="anomalyNoAction">0</span>
+          <span class="summary-label">No Action</span>
+        </div>
+      </div>
+      <div class="anomaly-categories" id="anomalyCategories">
+        <div class="anomaly-card" id="anomalyBSP">
+          <h4>Anomalies BSP</h4>
+          <div class="anomaly-list" id="anomalyBSPList">Aucune anomalie detectee</div>
+        </div>
+        <div class="anomaly-card" id="anomalyDuplicates">
+          <h4>Doublons</h4>
+          <div class="anomaly-list" id="anomalyDuplicatesList">Aucun doublon detecte</div>
+        </div>
+        <div class="anomaly-card" id="anomalyNA">
+          <h4>Valeurs N/A</h4>
+          <div class="anomaly-list" id="anomalyNAList">Aucune valeur N/A detectee</div>
+        </div>
+        <div class="anomaly-card" id="anomalyRisk">
+          <h4>Risk Status</h4>
+          <div class="anomaly-list" id="anomalyRiskList">Aucune anomalie detectee</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analysis Section -->
+    <section id="section-analysis" class="section">
+      <div class="section-header">
+        <h2>Analyse des Actions</h2>
+        <p>Determination OPENED / CLOSED / NO ACTION avec scoring de confiance</p>
+      </div>
+      <div class="analysis-summary" id="analysisSummary">
+        <div class="summary-card success">
+          <span class="summary-value" id="analysisOpened">0</span>
+          <span class="summary-label">OPENED</span>
+        </div>
+        <div class="summary-card danger">
+          <span class="summary-value" id="analysisClosed">0</span>
+          <span class="summary-label">CLOSED</span>
+        </div>
+        <div class="summary-card info">
+          <span class="summary-value" id="analysisNoAction">0</span>
+          <span class="summary-label">NO ACTION</span>
+        </div>
+        <div class="summary-card warning">
+          <span class="summary-value" id="analysisReview">0</span>
+          <span class="summary-label">REVIEW</span>
+        </div>
+      </div>
+      <div class="confidence-overview" id="confidenceOverview">
+        <h3>Confiance moyenne: <span id="avgConfidence">-</span></h3>
+        <div class="confidence-bar-container">
+          <div class="confidence-bar-fill" id="confidenceFill" style="width: 0%"></div>
+        </div>
+        <div class="confidence-legend">
+          <span><span class="legend-dot high"></span> Haute (&ge;80%): <strong id="confHigh">0</strong></span>
+          <span><span class="legend-dot medium"></span> Moyenne (50-79%): <strong id="confMedium">0</strong></span>
+          <span><span class="legend-dot low"></span> Faible (&lt;50%): <strong id="confLow">0</strong></span>
+        </div>
+      </div>
+      <div class="table-wrapper" style="margin-top: 20px;">
+        <table class="data-table" id="analysisTable">
+          <thead id="analysisHead">
+            <tr><th>Code IATA</th><th>Pays</th><th>Action</th><th>Confiance</th><th>Signaux</th></tr>
+          </thead>
+          <tbody id="analysisBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Actions & Export Section -->
+    <section id="section-actions" class="section">
+      <div class="section-header">
+        <h2>Actions TA & Export</h2>
+        <p>Table finale des actions et generation d'email</p>
+      </div>
+      <div class="actions-header" id="actionsHeader">
+        <h3 id="actionsTitle">TA ACTIONS TO BE DONE BEFORE -</h3>
+        <div class="deadline-picker">
+          <label for="deadlineDate">Date limite:</label>
+          <input type="date" id="deadlineDate">
+        </div>
+      </div>
+      <div class="actions-summary" id="actionsSummary">
+        <div class="summary-card success">
+          <span class="summary-value" id="actionsOpened">0</span>
+          <span class="summary-label">OPENED</span>
+        </div>
+        <div class="summary-card danger">
+          <span class="summary-value" id="actionsClosed">0</span>
+          <span class="summary-label">CLOSED</span>
+        </div>
+        <div class="summary-card warning">
+          <span class="summary-value" id="actionsReview">0</span>
+          <span class="summary-label">REVIEW</span>
+        </div>
+        <div class="summary-card info">
+          <span class="summary-value" id="actionsHighPriority">0</span>
+          <span class="summary-label">Priorite Haute</span>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table" id="actionsTable">
+          <thead>
+            <tr><th>Code IATA</th><th>Pays</th><th>Agent</th><th>Statut Actuel</th><th>TA Actuelle</th><th>Action</th><th>Priorite</th><th>Confiance</th></tr>
+          </thead>
+          <tbody id="actionsBody"></tbody>
+        </table>
+      </div>
+      <div class="export-section" style="margin-top: 24px;">
+        <h3>Export</h3>
+        <div class="actions" style="margin-top: 12px;">
+          <button class="btn btn-primary" id="btnDownloadReport">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Rapport Excel Complet
+          </button>
+          <button class="btn btn-secondary" id="btnPreviewEmail">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Apercu Email
+          </button>
+          <button class="btn btn-secondary" id="btnCopyEmail">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copier l'Email
+          </button>
+        </div>
+      </div>
+      <!-- Email Preview Modal -->
+      <div class="email-preview hidden" id="emailPreview">
+        <div class="email-preview-header">
+          <h3>Apercu de l'email</h3>
+          <button class="btn-icon" id="closeEmailPreview">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="email-preview-fields">
+          <div class="login-field">
+            <label for="emailRecipient">Destinataire</label>
+            <input type="text" id="emailRecipient" placeholder="nom.prenom@apg-airlines.com">
+          </div>
+          <div class="login-field">
+            <label for="emailSender">Expediteur</label>
+            <input type="text" id="emailSender" placeholder="APG Airlines - Risk Management">
+          </div>
+        </div>
+        <div class="email-preview-content" id="emailPreviewContent"></div>
+      </div>
+    </section>
   </main>
 
   <script src="../lib/xlsx.full.min.js"></script>
@@ -345,6 +667,12 @@
   <script src="../utils/excel-handler.js"></script>
   <script src="../utils/mock-data.js"></script>
   <script src="../utils/storage.js"></script>
+  <script src="../utils/ebulletin-cleaner.js"></script>
+  <script src="../utils/anomaly-detector.js"></script>
+  <script src="../utils/action-analyzer.js"></script>
+  <script src="../utils/output-generator.js"></script>
+  <script src="../utils/email-template.js"></script>
+  <script src="../utils/suivi-handler.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

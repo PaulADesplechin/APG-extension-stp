@@ -839,6 +839,339 @@ async function loadSavedCredentials() {
   }
 }
 
+// ============================================================
+// BOT PIPELINE - Fully automated eBulletin processing
+// ============================================================
+
+appState.cleanedWorkbook = null;
+appState.anomalyResults = null;
+appState.analysisResults = null;
+appState.actionsTable = null;
+appState.botRunning = false;
+
+// ---- Bot Log Helper ----
+function botLog(message, type = 'info') {
+  const log = document.getElementById('botLog');
+  if (!log) return;
+  log.querySelectorAll('.typing').forEach(el => el.classList.remove('typing'));
+  const entry = document.createElement('div');
+  entry.className = `bot-log-entry bot-log-${type} typing`;
+  entry.textContent = message;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+  setTimeout(() => entry.classList.remove('typing'), 1500);
+}
+
+function setBotStage(stageId, status, detail, badge) {
+  const stage = document.getElementById(`bot-stage-${stageId}`);
+  if (!stage) return;
+  const icon = stage.querySelector('.bot-stage-icon');
+  icon.className = `bot-stage-icon ${status}`;
+  stage.className = `bot-stage ${status === 'active' ? 'active-stage' : status === 'done' ? 'done-stage' : ''}`;
+  if (status === 'done') {
+    icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+  } else if (status === 'error') {
+    icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  }
+  if (detail) document.getElementById(`bot-detail-${stageId}`).textContent = detail;
+  if (badge) {
+    const badgeEl = document.getElementById(`bot-badge-${stageId}`);
+    badgeEl.textContent = badge.text;
+    badgeEl.className = `bot-stage-badge badge-${badge.type || 'info'}`;
+  }
+}
+
+function setBotStatus(text) {
+  const el = document.getElementById('botStatusText');
+  if (el) el.textContent = text;
+}
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// ---- Launch Bot ----
+document.getElementById('btnLaunchBot')?.addEventListener('click', launchBot);
+document.getElementById('botDownloadReport')?.addEventListener('click', downloadFullReport);
+document.getElementById('botViewEmail')?.addEventListener('click', showEmailPreview);
+document.getElementById('botViewDetails')?.addEventListener('click', () => switchSection('analysis'));
+
+async function launchBot() {
+  if (!appState.file || !appState.parsedData) {
+    showToast('Uploadez un fichier d\'abord', 'error');
+    return;
+  }
+  const mapping = getColumnMapping();
+  if (!mapping.iataCode || !mapping.country) {
+    showToast('Selectionnez les colonnes Code IATA et Pays', 'error');
+    return;
+  }
+  appState.columnMapping = mapping;
+  appState.botRunning = true;
+
+  document.getElementById('botPipeline').classList.remove('hidden');
+  document.getElementById('uploadActions').classList.add('hidden');
+  document.getElementById('botLog').innerHTML = '';
+
+  botLog('Bot APG initialise. Fichier: ' + appState.file.name, 'stage');
+  botLog(`${appState.parsedData.rows.length} lignes detectees`, 'info');
+  setBotStatus('Pipeline en cours...');
+
+  try {
+    // ===== STAGE 1: CLEANING =====
+    await sleep(400);
+    setBotStage('clean', 'active', 'Nettoyage en cours...');
+    botLog('ETAPE 1/5 - Nettoyage du fichier Excel', 'stage');
+    const cleanResult = await runBotCleaning();
+    setBotStage('clean', 'done',
+      `${cleanResult.rowsRemoved} lignes vides, ${cleanResult.riskConverted + cleanResult.irrConverted} cellules converties`,
+      { text: `${cleanResult.rowsRemoved} nettoyees`, type: 'success' });
+    botLog(`Nettoyage OK: ${cleanResult.rowsRemoved} lignes supprimees, 2 colonnes IATA inserees`, 'success');
+    updateCleaningSection(cleanResult);
+
+    // ===== STAGE 2: ANOMALY DETECTION =====
+    await sleep(600);
+    setBotStage('anomaly', 'active', 'Scan des anomalies...');
+    botLog('ETAPE 2/5 - Detection des anomalies', 'stage');
+    const anomalyResult = runBotAnomalyDetection();
+    const totalAnomalies = anomalyResult.summary.totalAnomalies;
+    setBotStage('anomaly', 'done',
+      `${totalAnomalies} anomalie(s), ${anomalyResult.noActionRows.length} No Action`,
+      { text: `${totalAnomalies} trouvees`, type: totalAnomalies > 5 ? 'warning' : 'success' });
+    if (totalAnomalies > 0) botLog(`${anomalyResult.summary.severityCounts.high} haute, ${anomalyResult.summary.severityCounts.medium} moyenne, ${anomalyResult.summary.severityCounts.low} faible`, 'warning');
+    else botLog('Aucune anomalie critique', 'success');
+    if (anomalyResult.duplicates.length > 0) botLog(`${anomalyResult.duplicates.length} doublons detectes`, 'warning');
+    botLog(`${anomalyResult.noActionRows.length} lignes "No Action"`, 'info');
+
+    // ===== STAGE 3: ACTION ANALYSIS =====
+    await sleep(600);
+    setBotStage('analysis', 'active', 'Analyse des actions...');
+    botLog('ETAPE 3/5 - Analyse OPENED / CLOSED / NO ACTION', 'stage');
+    const analysisResult = runBotActionAnalysis();
+    const summary = ActionAnalyzer.getSummary(analysisResult);
+    setBotStage('analysis', 'done',
+      `OPENED: ${summary.counts.OPENED || 0}, CLOSED: ${summary.counts.CLOSED || 0}, REVIEW: ${summary.counts.REVIEW || 0}`,
+      { text: `${summary.averageConfidence}% confiance`, type: summary.averageConfidence >= 70 ? 'success' : 'warning' });
+    botLog(`${summary.counts.OPENED || 0} OPENED, ${summary.counts.CLOSED || 0} CLOSED, ${summary.counts['NO ACTION'] || 0} NO ACTION, ${summary.counts.REVIEW || 0} REVIEW`, 'success');
+    botLog(`Confiance moyenne: ${summary.averageConfidence}%`, 'info');
+    if (summary.conflicts > 0) botLog(`${summary.conflicts} conflits detectes`, 'warning');
+
+    // ===== STAGE 4: BSP LINK =====
+    await sleep(500);
+    const isMock = document.getElementById('mockMode').checked;
+    if (isMock) {
+      setBotStage('bsplink', 'active', 'Simulation BSP Link (mode demo)...');
+      botLog('ETAPE 4/5 - BSP Link (MODE DEMO)', 'stage');
+      await runBotMockBSPLink();
+      setBotStage('bsplink', 'done', 'Donnees simulees generees', { text: 'DEMO', type: 'info' });
+      botLog('BSP Link simule: donnees generees', 'success');
+      runBotActionAnalysis(); // re-run with BSP data
+    } else {
+      setBotStage('bsplink', 'skipped', 'Utilisez "BSP Link seulement"', { text: 'SKIP', type: 'warning' });
+      botLog('ETAPE 4/5 - BSP Link ignore (mode manuel)', 'warning');
+    }
+
+    // ===== STAGE 5: REPORT =====
+    await sleep(500);
+    setBotStage('report', 'active', 'Generation du rapport...');
+    botLog('ETAPE 5/5 - Generation rapport & email', 'stage');
+    generateActionsTable();
+    const actionsCount = appState.actionsTable?.summary?.totalActions || 0;
+    const highPriority = appState.actionsTable?.summary?.highPriority || 0;
+    setBotStage('report', 'done', `${actionsCount} actions TA, rapport pret`,
+      { text: `${actionsCount} actions`, type: actionsCount > 0 ? 'success' : 'info' });
+    botLog(`${actionsCount} actions, ${highPriority} priorite haute`, 'success');
+    botLog('Email HTML pret', 'success');
+
+    // ===== DONE =====
+    await sleep(300);
+    setBotStatus('Pipeline termine!');
+    botLog('', 'info');
+    botLog('PIPELINE TERMINE - Rapport pret a telecharger.', 'stage');
+    document.getElementById('botActions').classList.remove('hidden');
+    showToast('Bot termine! Rapport pret.', 'success');
+
+  } catch (err) {
+    setBotStatus('Erreur');
+    botLog(`ERREUR: ${err.message}`, 'error');
+    showToast(`Erreur: ${err.message}`, 'error');
+  }
+  appState.botRunning = false;
+}
+
+// ---- Bot sub-routines ----
+function runBotCleaning() {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const cleaned = EbulletinCleaner.cleanWorkbook(wb);
+        appState.cleanedWorkbook = cleaned;
+        resolve({ rowsRemoved: cleaned._cleaningStats.rowsRemoved, riskConverted: cleaned._cleaningStats.riskCellsConverted, irrConverted: cleaned._cleaningStats.irrCellsConverted });
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Erreur lecture'));
+    reader.readAsArrayBuffer(appState.file);
+  });
+}
+
+function updateCleaningSection(stats) {
+  setCleanStepStatus('clean-step-1', 'done');
+  document.getElementById('cleanStat1').textContent = `${stats.rowsRemoved} supprimees`;
+  setCleanStepStatus('clean-step-2', 'done');
+  document.getElementById('cleanStat2').textContent = '2 colonnes';
+  setCleanStepStatus('clean-step-3', 'done');
+  document.getElementById('cleanStat3').textContent = `${stats.riskConverted} converties`;
+  setCleanStepStatus('clean-step-4', 'done');
+  document.getElementById('cleanStat4').textContent = `${stats.irrConverted} converties`;
+  document.getElementById('btnDownloadCleaned').disabled = false;
+}
+
+function setCleanStepStatus(stepId, status) {
+  const step = document.getElementById(stepId);
+  if (!step) return;
+  const icon = step.querySelector('.pipeline-icon');
+  icon.className = `pipeline-icon ${status}`;
+  if (status === 'done') icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+}
+
+function runBotAnomalyDetection() {
+  const mapping = getColumnMapping();
+  const results = AnomalyDetector.analyzeAll(appState.parsedData.rows, appState.parsedData.headers, mapping);
+  appState.anomalyResults = results;
+  const sev = results.summary.severityCounts;
+  document.getElementById('anomalyHigh').textContent = sev.high;
+  document.getElementById('anomalyMedium').textContent = sev.medium;
+  document.getElementById('anomalyLow').textContent = sev.low;
+  document.getElementById('anomalyNoAction').textContent = results.noActionRows.length;
+  renderAnomalyList('anomalyBSPList', results.bspAnomalies);
+  renderAnomalyList('anomalyDuplicatesList', results.duplicates);
+  renderAnomalyList('anomalyNAList', results.naValues.slice(0, 20));
+  renderAnomalyList('anomalyRiskList', results.riskAnomalies);
+  return results;
+}
+
+function renderAnomalyList(elementId, anomalies) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  if (anomalies.length === 0) { el.textContent = 'Aucune anomalie detectee'; return; }
+  el.innerHTML = anomalies.slice(0, 15).map(a =>
+    `<div class="anomaly-item ${a.severity}">${escapeHtml(a.message)}</div>`
+  ).join('') + (anomalies.length > 15 ? `<div class="anomaly-item low">... et ${anomalies.length - 15} autres</div>` : '');
+}
+
+function runBotActionAnalysis() {
+  const mapping = getColumnMapping();
+  const analyses = ActionAnalyzer.analyzeAll(appState.parsedData.rows, mapping, appState.results);
+  appState.analysisResults = analyses;
+  const summary = ActionAnalyzer.getSummary(analyses);
+  document.getElementById('analysisOpened').textContent = summary.counts.OPENED || 0;
+  document.getElementById('analysisClosed').textContent = summary.counts.CLOSED || 0;
+  document.getElementById('analysisNoAction').textContent = summary.counts['NO ACTION'] || 0;
+  document.getElementById('analysisReview').textContent = summary.counts.REVIEW || 0;
+  document.getElementById('avgConfidence').textContent = `${summary.averageConfidence}%`;
+  document.getElementById('confidenceFill').style.width = `${summary.averageConfidence}%`;
+  document.getElementById('confHigh').textContent = summary.highConfidence;
+  document.getElementById('confMedium').textContent = summary.total - summary.highConfidence - summary.lowConfidence;
+  document.getElementById('confLow').textContent = summary.lowConfidence;
+  const tbody = document.getElementById('analysisBody');
+  if (tbody) {
+    tbody.innerHTML = analyses.slice(0, 50).map(a => {
+      const actionClass = a.action === 'OPENED' ? 'action-opened' : a.action === 'CLOSED' ? 'action-closed' : a.action === 'REVIEW' ? 'action-review' : 'action-noaction';
+      const confClass = a.confidence >= 80 ? 'high' : a.confidence >= 50 ? 'medium' : 'low';
+      return `<tr><td><strong>${escapeHtml(a.iataCode)}</strong></td><td>${escapeHtml(a.country)}</td><td class="${actionClass}">${escapeHtml(a.action)}</td><td><div class="confidence-cell"><div class="confidence-mini-bar"><div class="confidence-mini-fill ${confClass}" style="width:${a.confidence}%"></div></div>${a.confidence}%</div></td><td>${escapeHtml(a.reasoning[0] || '-')}</td></tr>`;
+    }).join('');
+  }
+  return analyses;
+}
+
+async function runBotMockBSPLink() {
+  const { rows } = appState.parsedData;
+  const { iataCode, country } = appState.columnMapping;
+  appState.results = await MockDataGenerator.generateBatchResults(rows, iataCode, country,
+    (p) => { if (p.type === 'country_switch') botLog(`  BSP: ${p.countryName || p.country}...`, 'info'); });
+}
+
+// ---- Shared functions ----
+function generateActionsTable() {
+  if (!appState.analysisResults) return;
+  const deadlineInput = document.getElementById('deadlineDate');
+  let deadline;
+  if (deadlineInput?.value) { const d = new Date(deadlineInput.value); deadline = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+  const actionsTable = OutputGenerator.generateActionsTable(appState.analysisResults, appState.results, deadline);
+  appState.actionsTable = actionsTable;
+  document.getElementById('actionsTitle').textContent = actionsTable.title;
+  document.getElementById('actionsOpened').textContent = actionsTable.summary.opened;
+  document.getElementById('actionsClosed').textContent = actionsTable.summary.closed;
+  document.getElementById('actionsReview').textContent = actionsTable.summary.review;
+  document.getElementById('actionsHighPriority').textContent = actionsTable.summary.highPriority;
+  const tbody = document.getElementById('actionsBody');
+  if (tbody) {
+    tbody.innerHTML = actionsTable.rows.map(row => {
+      const ac = row.requiredAction === 'OPENED' ? 'action-opened' : row.requiredAction === 'CLOSED' ? 'action-closed' : 'action-review';
+      const pc = row.priority === 'high' ? 'priority-high' : row.priority === 'medium' ? 'priority-medium' : '';
+      return `<tr class="${pc}"><td><strong>${escapeHtml(row.iataCode)}</strong></td><td>${escapeHtml(row.country)}</td><td>${escapeHtml(row.agentName)}</td><td>${escapeHtml(row.currentStatus)}</td><td>${escapeHtml(row.currentTA)}</td><td class="${ac}">${escapeHtml(row.requiredAction)}</td><td>${row.priority.toUpperCase()}</td><td>${row.confidence}%</td></tr>`;
+    }).join('');
+  }
+}
+
+function downloadFullReport() {
+  if (!appState.actionsTable || !appState.parsedData) { showToast('Lancez le bot d\'abord', 'error'); return; }
+  const wb = OutputGenerator.createFullReport(appState.parsedData, appState.cleanedWorkbook?._cleaningStats || {},
+    appState.anomalyResults || { bspAnomalies: [], actionAnomalies: [], naValues: [], duplicates: [], riskAnomalies: [], noActionRows: [] },
+    appState.analysisResults, appState.actionsTable, appState.results);
+  OutputGenerator.downloadReport(wb);
+  showToast('Rapport telecharge', 'success');
+}
+
+function showEmailPreview() {
+  if (!appState.actionsTable) { showToast('Lancez le bot d\'abord', 'error'); return; }
+  switchSection('actions');
+  setTimeout(() => {
+    document.getElementById('emailPreview').classList.remove('hidden');
+    const html = EmailTemplate.generateEmail(appState.actionsTable, document.getElementById('emailRecipient')?.value || '', document.getElementById('emailSender')?.value || '');
+    const container = document.getElementById('emailPreviewContent');
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'width:100%;height:500px;border:none';
+    container.innerHTML = '';
+    container.appendChild(iframe);
+    iframe.contentDocument.open();
+    iframe.contentDocument.write(html);
+    iframe.contentDocument.close();
+  }, 100);
+}
+
+// ---- Manual section buttons ----
+document.getElementById('btnRunCleaning')?.addEventListener('click', async () => {
+  if (!appState.file) { showToast('Uploadez un fichier', 'error'); return; }
+  const r = await runBotCleaning(); updateCleaningSection(r); showToast('Nettoyage OK', 'success');
+  runBotAnomalyDetection(); runBotActionAnalysis(); generateActionsTable();
+});
+document.getElementById('btnDownloadCleaned')?.addEventListener('click', () => {
+  if (!appState.cleanedWorkbook) return;
+  XLSX.writeFile(appState.cleanedWorkbook, `${(appState.file?.name || 'file').replace(/\.[^.]+$/, '')}_nettoye.xlsx`);
+});
+document.getElementById('deadlineDate')?.addEventListener('change', generateActionsTable);
+document.getElementById('btnDownloadReport')?.addEventListener('click', downloadFullReport);
+document.getElementById('btnPreviewEmail')?.addEventListener('click', showEmailPreview);
+document.getElementById('closeEmailPreview')?.addEventListener('click', () => document.getElementById('emailPreview')?.classList.add('hidden'));
+document.getElementById('btnCopyEmail')?.addEventListener('click', async () => {
+  if (!appState.actionsTable) { showToast('Lancez le bot', 'error'); return; }
+  const html = EmailTemplate.generateEmail(appState.actionsTable, document.getElementById('emailRecipient')?.value || '', document.getElementById('emailSender')?.value || '');
+  const ok = await EmailTemplate.copyToClipboard(html);
+  showToast(ok ? 'Email copie!' : 'Erreur', ok ? 'success' : 'error');
+});
+
+// Enable bot button when file loaded
+const originalHandleFileSelected = handleFileSelected;
+handleFileSelected = async function(file) {
+  await originalHandleFileSelected(file);
+  document.getElementById('btnLaunchBot').disabled = false;
+  document.getElementById('btnRunCleaning').disabled = false;
+  document.getElementById('botPipeline')?.classList.add('hidden');
+  document.getElementById('uploadActions')?.classList.remove('hidden');
+  document.getElementById('botActions')?.classList.add('hidden');
+};
+
 // ---- Init ----
 loadHistory();
 loadSavedCredentials();
