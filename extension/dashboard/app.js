@@ -673,5 +673,172 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ---- Connection / Login ----
+document.getElementById('btnConnect')?.addEventListener('click', startLogin);
+
+async function startLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+
+  if (!email || !password) {
+    showToast('Entrez votre email et mot de passe', 'error');
+    return;
+  }
+
+  // Save credentials if checkbox is checked
+  if (document.getElementById('saveCredentials').checked) {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ savedEmail: email });
+    }
+  }
+
+  // Show progress steps
+  document.getElementById('loginForm').classList.add('hidden');
+  document.getElementById('loginProgress').classList.remove('hidden');
+
+  // Update status indicator
+  setConnectionStatus('connecting', 'Connexion en cours...');
+
+  try {
+    const port = chrome.runtime.connect({ name: 'processing' });
+    appState.port = port;
+
+    port.postMessage({
+      type: 'START_LOGIN',
+      payload: { email, password }
+    });
+
+    port.onMessage.addListener((msg) => {
+      if (msg.type === 'LOGIN_STATUS') {
+        handleLoginStep(msg.payload);
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      // Port disconnected
+    });
+  } catch (err) {
+    showToast(`Erreur: ${err.message}`, 'error');
+    document.getElementById('loginForm').classList.remove('hidden');
+    document.getElementById('loginProgress').classList.add('hidden');
+    setConnectionStatus('disconnected', 'Erreur de connexion');
+  }
+}
+
+function handleLoginStep(payload) {
+  const { step, message } = payload;
+
+  switch (step) {
+    case 'opening':
+      setStepStatus('step-opening', 'active', message);
+      break;
+    case 'filling':
+      setStepStatus('step-opening', 'done', 'Portail IATA ouvert');
+      setStepStatus('step-filling', 'active', message);
+      break;
+    case 'filled':
+      setStepStatus('step-filling', 'done', 'Identifiants remplis');
+      setStepStatus('step-2fa', 'active', 'En attente de validation par votre collegue...');
+      setConnectionStatus('connecting', 'Attente validation 2FA...');
+      break;
+    case 'waiting_2fa':
+      setStepStatus('step-2fa', 'active', message);
+      break;
+    case 'logged_in':
+      setStepStatus('step-2fa', 'done', '2FA valide!');
+      setStepStatus('step-bsplink', 'active', 'Navigation vers BSP Link...');
+      break;
+    case 'already_logged_in':
+      setStepStatus('step-opening', 'done', 'Deja connecte');
+      setStepStatus('step-filling', 'done', 'Non necessaire');
+      setStepStatus('step-2fa', 'done', 'Non necessaire');
+      setStepStatus('step-bsplink', 'active', 'Navigation vers BSP Link...');
+      break;
+    case 'success':
+      setStepStatus('step-bsplink', 'done', 'Connecte a BSP Link!');
+      setConnectionStatus('connected', 'Connecte a BSP Link');
+      showToast('Connexion reussie! Vous pouvez maintenant uploader un fichier.', 'success');
+      // Auto-disable mock mode
+      document.getElementById('mockMode').checked = false;
+      break;
+    case 'navigate_manual':
+      setStepStatus('step-bsplink', 'done', message);
+      setConnectionStatus('connected', 'Connecte au portail IATA');
+      showToast('Connecte! Naviguez vers BSP Link manuellement.', 'info');
+      break;
+    case 'login_page_not_ready':
+    case 'fill_error':
+    case 'error':
+    case 'timeout':
+      setConnectionStatus('disconnected', message);
+      showToast(message, 'error');
+      // Show login form again
+      setTimeout(() => {
+        document.getElementById('loginForm').classList.remove('hidden');
+        document.getElementById('loginProgress').classList.add('hidden');
+        resetLoginSteps();
+      }, 3000);
+      break;
+  }
+}
+
+function setConnectionStatus(status, message) {
+  const indicator = document.getElementById('statusIndicator');
+  indicator.className = `status-indicator ${status}`;
+
+  const icon = status === 'connected'
+    ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+    : status === 'connecting'
+    ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
+    : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+
+  document.getElementById('statusMessage').textContent = message;
+  indicator.innerHTML = icon + `<span id="statusMessage">${escapeHtml(message)}</span>`;
+}
+
+function setStepStatus(stepId, status, detail) {
+  const step = document.getElementById(stepId);
+  if (!step) return;
+
+  const icon = step.querySelector('.step-icon');
+  icon.className = `step-icon ${status}`;
+
+  if (status === 'done') {
+    icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+  } else if (status === 'error') {
+    icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  }
+
+  const detailEl = step.querySelector('.step-detail');
+  if (detailEl && detail) detailEl.textContent = detail;
+}
+
+function resetLoginSteps() {
+  ['step-opening', 'step-filling', 'step-2fa', 'step-bsplink'].forEach(id => {
+    const step = document.getElementById(id);
+    if (!step) return;
+    const icon = step.querySelector('.step-icon');
+    const num = id.split('-').pop() === 'opening' ? '1' :
+                id.split('-').pop() === 'filling' ? '2' :
+                id.split('-').pop() === '2fa' ? '3' : '4';
+    icon.className = 'step-icon pending';
+    icon.textContent = num;
+  });
+}
+
+// Load saved email on init
+async function loadSavedCredentials() {
+  if (typeof chrome !== 'undefined' && chrome.storage) {
+    try {
+      const data = await chrome.storage.local.get(['savedEmail']);
+      if (data.savedEmail) {
+        document.getElementById('loginEmail').value = data.savedEmail;
+        document.getElementById('saveCredentials').checked = true;
+      }
+    } catch {}
+  }
+}
+
 // ---- Init ----
 loadHistory();
+loadSavedCredentials();

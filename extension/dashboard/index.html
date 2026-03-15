@@ -18,7 +18,11 @@
       <span class="tagline">Risk Management Tool</span>
     </div>
     <nav class="sidebar-nav">
-      <a href="#" class="nav-item active" data-section="upload">
+      <a href="#" class="nav-item active" data-section="connexion">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Connexion BSP
+      </a>
+      <a href="#" class="nav-item" data-section="upload">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Upload Excel
       </a>
@@ -49,8 +53,96 @@
 
   <!-- Main Content -->
   <main class="main-content">
+    <!-- Connexion Section -->
+    <section id="section-connexion" class="section active">
+      <div class="section-header">
+        <h2>Connexion BSP Link</h2>
+        <p>Connectez-vous au portail IATA pour acceder a BSP Link</p>
+      </div>
+
+      <!-- Connection Status -->
+      <div class="connection-status" id="connectionStatus">
+        <div class="status-indicator disconnected" id="statusIndicator">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <span id="statusMessage">Non connecte</span>
+        </div>
+      </div>
+
+      <!-- Login Form -->
+      <div class="login-form" id="loginForm">
+        <div class="login-card">
+          <div class="login-card-header">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4A55A2" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <h3>Identifiants IATA Portal</h3>
+          </div>
+          <div class="login-field">
+            <label for="loginEmail">Email</label>
+            <input type="email" id="loginEmail" placeholder="votre.email@apg-airlines.com" autocomplete="email">
+          </div>
+          <div class="login-field">
+            <label for="loginPassword">Mot de passe</label>
+            <input type="password" id="loginPassword" placeholder="Mot de passe IATA" autocomplete="current-password">
+          </div>
+          <div class="login-options">
+            <label class="toggle-label small">
+              <input type="checkbox" id="saveCredentials">
+              <span class="toggle-slider small"></span>
+              Sauvegarder les identifiants
+            </label>
+          </div>
+          <button class="btn btn-primary btn-lg" id="btnConnect" style="width: 100%;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            Se connecter a BSP Link
+          </button>
+        </div>
+      </div>
+
+      <!-- Login Progress -->
+      <div class="login-progress hidden" id="loginProgress">
+        <div class="login-steps">
+          <div class="login-step" id="step-opening">
+            <div class="step-icon pending">1</div>
+            <div class="step-text">
+              <strong>Ouverture du portail IATA</strong>
+              <span class="step-detail" id="step-opening-detail">En attente...</span>
+            </div>
+          </div>
+          <div class="login-step" id="step-filling">
+            <div class="step-icon pending">2</div>
+            <div class="step-text">
+              <strong>Remplissage des identifiants</strong>
+              <span class="step-detail" id="step-filling-detail">En attente...</span>
+            </div>
+          </div>
+          <div class="login-step" id="step-2fa">
+            <div class="step-icon pending">3</div>
+            <div class="step-text">
+              <strong>Validation 2FA</strong>
+              <span class="step-detail" id="step-2fa-detail">Votre collegue doit approuver la notification push</span>
+            </div>
+          </div>
+          <div class="login-step" id="step-bsplink">
+            <div class="step-icon pending">4</div>
+            <div class="step-text">
+              <strong>Navigation vers BSP Link</strong>
+              <span class="step-detail" id="step-bsplink-detail">En attente...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info Box -->
+      <div class="info-box">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4A55A2" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <div>
+          <strong>Double authentification</strong>
+          <p>Apres la connexion, votre collegue recevra une notification push pour valider l'acces. L'extension attend automatiquement cette validation.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- Upload Section -->
-    <section id="section-upload" class="section active">
+    <section id="section-upload" class="section">
       <div class="section-header">
         <h2>Upload du fichier eBulletin</h2>
         <p>Importez votre fichier Excel BSP Link hebdomadaire</p>
