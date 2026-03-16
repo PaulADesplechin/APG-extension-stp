@@ -894,16 +894,35 @@ async function handleStartFullBot(port) {
 
     botModeState.bspTabId = bspTab.id;
     await focusTab(bspTab.id);
+    await wait(3000); // Give page time to load
 
     // Wait for BSP Link to be logged in (SSO from portal)
     await ensureContentScript(bspTab.id, 'bsplink');
-    const bspLogin = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+    let bspLogin = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+    console.log('[APG Bot] BSP Link login check:', JSON.stringify(bspLogin));
+
+    // If first check failed, try finding BSP Link tab again (might be wrong tab)
+    if (!bspLogin?.isLoggedIn) {
+      console.log('[APG Bot] First check failed. Re-scanning for BSP Link tabs...');
+      const bspTab2 = await findBSPLinkTab();
+      if (bspTab2 && bspTab2.id !== bspTab.id) {
+        console.log('[APG Bot] Found different BSP Link tab:', bspTab2.url);
+        bspTab = bspTab2;
+        botModeState.bspTabId = bspTab.id;
+        await focusTab(bspTab.id);
+        await wait(2000);
+        await ensureContentScript(bspTab.id, 'bsplink');
+        bspLogin = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+        console.log('[APG Bot] Second BSP tab login check:', JSON.stringify(bspLogin));
+      }
+    }
 
     if (!bspLogin?.isLoggedIn) {
       sendBotStatus(port, 'waiting_login', 'Etape 1/4 - Attente de connexion BSP Link (SSO depuis le portail)...', {
         instruction: 'La connexion SSO devrait etre automatique. Si ca bloque, connectez-vous manuellement a BSP Link.'
       });
 
+      // Poll more aggressively — also re-check ALL bsplink tabs each time
       const bspLoginSuccess = await pollForBSPLinkLogin(bspTab.id, port, 90); // 3 min
       if (!bspLoginSuccess) {
         if (!botModeState.isCancelled) {
@@ -1107,14 +1126,32 @@ async function pollForLogin(tabId, port) {
 // Poll for BSP Link login (SSO after portal login)
 // ============================================================
 async function pollForBSPLinkLogin(tabId, port, maxAttempts = 60) {
-  // Default: 60 attempts = 2 minutes at 2-second intervals
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (botModeState.isCancelled) return false;
 
     try {
+      // Check the given tab first
       await ensureContentScript(tabId, 'bsplink');
       const loginCheck = await sendToTab(tabId, { type: 'CHECK_LOGIN' });
-      if (loginCheck?.isLoggedIn) return true;
+      if (loginCheck?.isLoggedIn) {
+        console.log('[APG] BSP Link login detected on tab', tabId);
+        botModeState.bspTabId = tabId;
+        return true;
+      }
+
+      // Every 5 attempts, also scan ALL tabs for BSP Link (it may have opened in a new tab)
+      if (attempt % 5 === 0) {
+        const bspTab = await findBSPLinkTab();
+        if (bspTab && bspTab.id !== tabId) {
+          await ensureContentScript(bspTab.id, 'bsplink');
+          const altCheck = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+          if (altCheck?.isLoggedIn) {
+            console.log('[APG] BSP Link login detected on DIFFERENT tab', bspTab.id, bspTab.url);
+            botModeState.bspTabId = bspTab.id;
+            return true;
+          }
+        }
+      }
     } catch (err) {
       // Keep polling
     }
@@ -1608,15 +1645,22 @@ async function runBSPLinkScraping(rows, iataColumn, countryColumn, bspTab, port)
 // ---- Helpers ----
 
 async function findBSPLinkTab() {
+  // Try exact URL match first
   const tabs = await chrome.tabs.query({
     url: ['*://www.bsplink.iata.org/*', '*://bsplink.iata.org/*']
   });
-  if (tabs.length > 0) return tabs[0];
+  if (tabs.length > 0) {
+    console.log('[APG] Found BSP Link tab by URL:', tabs[0].url);
+    return tabs[0];
+  }
 
-  // Also try finding by title
+  // Search ALL tabs by URL content or title
   const allTabs = await chrome.tabs.query({});
   for (const tab of allTabs) {
-    if (tab.url && (tab.url.includes('bsplink') || tab.url.includes('BSPlink'))) {
+    const url = (tab.url || '').toLowerCase();
+    const title = (tab.title || '').toLowerCase();
+    if (url.includes('bsplink') || title.includes('bsp link') || title.includes('bsplink')) {
+      console.log('[APG] Found BSP Link tab by title/url scan:', tab.url, tab.title);
       return tab;
     }
   }

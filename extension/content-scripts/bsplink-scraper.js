@@ -95,10 +95,17 @@ function checkLoginStatus() {
 
   const isLoginUrl = /login|signin|auth|sso/i.test(url);
 
+  // Check if we are on bsplink.iata.org (any page that's not a login page = we're logged in)
+  const isBspLinkDomain = url.includes('bsplink.iata.org');
+
   // Check for ISOC selection page (first page after SSO login)
-  const hasIsocSelector = !!(
-    document.querySelector('select') &&
-    (bodyText.includes('ISOC') || bodyText.includes('BSP') || bodyText.includes('Country'))
+  // Accept ANY page with a <select> on bsplink domain as logged in
+  const hasSelectElement = !!document.querySelector('select');
+  const hasIsocSelector = hasSelectElement && (
+    bodyText.includes('ISOC') || bodyText.includes('BSP') ||
+    bodyText.includes('Country') || bodyText.includes('Submit') ||
+    bodyText.includes('Language') || bodyText.includes('Langue') ||
+    isBspLinkDomain
   );
 
   // Check for logged-in indicators
@@ -117,20 +124,36 @@ function checkLoginStatus() {
     document.querySelector('[class*="user-profile"]')
   );
 
+  // Check for any form/button on the page (ISOC, user selection)
+  const hasForm = !!document.querySelector('form');
+  const hasSubmitBtn = !!(
+    document.querySelector('button[type="submit"]') ||
+    document.querySelector('input[type="submit"]') ||
+    document.querySelector('input[value*="Submit" i]')
+  );
+
   const headerCountry = detectCurrentCountry();
 
-  // Consider logged in if: has nav + no login form, OR has ISOC selector, OR has country header
+  // LIBERAL login detection:
+  // If we're on bsplink.iata.org and there's no password field → we're logged in
+  // The ISOC page, user selection page, dashboard, etc. are ALL "logged in" states
   const isLoggedIn = (
-    (hasLoggedInLinks && !hasLoginForm && !isLoginUrl) ||
+    (isBspLinkDomain && !hasLoginForm && !isLoginUrl) ||
+    (hasLoggedInLinks && !hasLoginForm) ||
     hasIsocSelector ||
     !!headerCountry
   );
 
+  log('Login check:', { isLoggedIn, isBspLinkDomain, hasLoginForm, hasIsocSelector, hasLoggedInLinks, isLoginUrl, hasForm, hasSubmitBtn });
+
   return {
     isLoggedIn,
+    isBspLinkDomain,
     hasLoginForm,
     hasIsocSelector,
     hasLoggedInLinks,
+    hasForm,
+    hasSubmitBtn,
     isLoginUrl,
     currentUrl: window.location.href,
     pageTitle: document.title,
