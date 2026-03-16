@@ -185,6 +185,11 @@
       case 'error':
         fbSetStatus('Erreur');
         fbLog(`ERREUR: ${message}`, 'error');
+        // If eBulletin download failed, offer manual upload fallback
+        if (message && (message.includes('eBulletin') || message.includes('telechargement'))) {
+          fbLog('Vous pouvez uploader le fichier manuellement ci-dessous.', 'warning');
+          showManualUploadFallback();
+        }
         fullBotActive = false;
         break;
 
@@ -203,7 +208,8 @@
 
     try {
       // Decode base64 to ArrayBuffer
-      const binaryString = atob(msg.data);
+      const base64 = msg.payload?.data || msg.data;
+      const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
@@ -297,7 +303,9 @@
         `${payload.completed}/${payload.total} codes (${pct}%)`);
       // Accumulate results
       if (!appState.results) appState.results = [];
-      appState.results.push(payload.result);
+      // payload IS the result (iataCode, country, agentStatus, etc.)
+      const { type, completed, total, percent, ...resultData } = payload;
+      appState.results.push(resultData);
     } else if (payload.type === 'country_error') {
       fbLog(`Erreur ${payload.country}: ${payload.error}`, 'warning');
     }
@@ -305,7 +313,7 @@
 
   // ---- Handle BSP scraping complete ----
   function handleBSPComplete(msg) {
-    const results = msg.results || appState.results || [];
+    const results = msg.payload?.results || msg.results || appState.results || [];
     appState.results = results;
     fbSetStage('bsplink', 'done',
       `${results.length} codes verifies`,
@@ -367,6 +375,16 @@
     if (appState.file && appState.parsedData) {
       fbLog(`Fichier deja charge: ${appState.file.name}`, 'success');
       fbSetStage('ebulletin', 'done', appState.file.name, { text: 'LOCAL', type: 'info' });
+      // Auto-detect column mapping from loaded file
+      if (!appState.columnMapping) {
+        const detected = ExcelHandler.detectColumns(appState.parsedData.headers);
+        appState.columnMapping = {
+          iataCode: detected.iataCode || appState.parsedData.headers.find(h => /iata|code/i.test(h)) || appState.parsedData.headers[0],
+          country: detected.country || appState.parsedData.headers.find(h => /country|pays/i.test(h)) || appState.parsedData.headers[1],
+          agencyName: detected.agencyName,
+          section: detected.section
+        };
+      }
     } else {
       fbLog('Pas de fichier — generation de donnees demo', 'warning');
       // Generate mock data if no file loaded
@@ -498,6 +516,132 @@
       });
     }
     return rows;
+  }
+
+  // ---- Manual upload fallback ----
+  function showManualUploadFallback() {
+    const log = document.getElementById('fullBotLog');
+    if (!log) return;
+    const fallback = document.createElement('div');
+    fallback.className = 'bot-log-fallback';
+    fallback.innerHTML = `
+      <div style="padding:12px; margin-top:8px; background:#1e1f32; border:1px dashed #4A55A2; border-radius:8px; text-align:center;">
+        <p style="color:#a0a0b0; margin-bottom:8px; font-size:13px;">Uploadez le fichier eBulletin manuellement:</p>
+        <input type="file" id="fbFallbackFile" accept=".xlsx,.xls,.csv" style="display:none;">
+        <button id="fbFallbackBtn" style="padding:10px 24px; background:#4A55A2; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600;">
+          📁 Choisir un fichier Excel
+        </button>
+      </div>
+    `;
+    log.appendChild(fallback);
+    log.scrollTop = log.scrollHeight;
+
+    const fileInput = document.getElementById('fbFallbackFile');
+    document.getElementById('fbFallbackBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      fallback.remove();
+      fbLog(`Fichier charge: ${file.name}`, 'success');
+      fbSetStage('ebulletin', 'done', file.name, { text: 'MANUEL', type: 'info' });
+      appState.file = file;
+
+      // Process the manually uploaded file
+      try {
+        const ab = await file.arrayBuffer();
+        const wb = XLSX.read(ab, { type: 'array' });
+        // Simulate the same flow as handleEbulletinDownloaded
+        const fakeMsg = { payload: { data: null }, _rawWorkbook: wb };
+        await processWorkbookFromFallback(wb);
+      } catch (err) {
+        fbLog(`Erreur: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  async function processWorkbookFromFallback(wb) {
+    fbSetStage('processing', 'active', 'Nettoyage en cours...');
+    fbLog('NETTOYAGE — suppression lignes vides, conversion cellules', 'stage');
+
+    const cleaned = EbulletinCleaner.cleanWorkbook(wb);
+    const stats = cleaned._cleaningStats || {};
+    fbLog(`${stats.rowsRemoved || 0} lignes supprimees, ${(stats.riskCellsConverted || 0) + (stats.irrCellsConverted || 0)} cellules converties`, 'success');
+    appState.cleanedWorkbook = cleaned;
+
+    const sheetName = cleaned.SheetNames[0];
+    const ws = cleaned.Sheets[sheetName];
+    const json = XLSX.utils.sheet_to_json(ws);
+    const headers = json.length > 0 ? Object.keys(json[0]) : [];
+    appState.parsedData = { headers, rows: json, sheetName };
+
+    const detected = ExcelHandler.detectColumns(headers);
+    appState.columnMapping = {
+      iataCode: detected.iataCode || headers.find(h => /iata|code/i.test(h)) || headers[0],
+      country: detected.country || headers.find(h => /country|pays/i.test(h)) || headers[1],
+      agencyName: detected.agencyName,
+      section: detected.section
+    };
+    fbLog(`Colonnes: IATA=${appState.columnMapping.iataCode}, Pays=${appState.columnMapping.country}`, 'info');
+    fbLog(`${json.length} lignes de donnees`, 'info');
+
+    // Anomaly detection
+    fbLog('ANOMALIES — scan des donnees', 'stage');
+    const anomalyResult = AnomalyDetector.analyzeAll(json, headers, appState.columnMapping);
+    appState.anomalyResults = anomalyResult;
+    fbLog(`${anomalyResult.summary.totalAnomalies} anomalie(s)`, anomalyResult.summary.totalAnomalies > 0 ? 'warning' : 'success');
+
+    // Action analysis
+    fbLog('ANALYSE — OPENED/CLOSED/REVIEW', 'stage');
+    const analyses = ActionAnalyzer.analyzeAll(json, appState.columnMapping, null);
+    appState.analysisResults = analyses;
+    const summary = ActionAnalyzer.getSummary(analyses);
+    fbLog(`${summary.counts.OPENED || 0} OPENED, ${summary.counts.CLOSED || 0} CLOSED, ${summary.counts.REVIEW || 0} REVIEW`, 'success');
+
+    fbSetStage('processing', 'done',
+      `${json.length} lignes, ${summary.counts.OPENED || 0} OPENED, ${summary.counts.REVIEW || 0} REVIEW`,
+      { text: `${summary.averageConfidence}% confiance`, type: summary.averageConfidence >= 60 ? 'success' : 'warning' });
+
+    // Now try BSP Link scraping if we have a port
+    if (fullBotPort) {
+      fbSetStage('bsplink', 'active', 'Demarrage du scraping BSP Link...');
+      fbLog('SCRAPING BSP LINK — verification des Ticketing Authorities', 'stage');
+      fullBotPort.postMessage({
+        type: 'EBULLETIN_PROCESSED',
+        payload: { rows: json, iataColumn: appState.columnMapping.iataCode, countryColumn: appState.columnMapping.country }
+      });
+    } else {
+      // No service worker connection — use mock BSP data
+      fbLog('Pas de connexion BSP Link — utilisation des donnees mock', 'warning');
+      fbSetStage('bsplink', 'active', 'Simulation BSP Link...');
+      const { rows } = appState.parsedData;
+      const { iataCode, country } = appState.columnMapping;
+      appState.results = await MockDataGenerator.generateBatchResults(rows, iataCode, country,
+        (p) => {
+          if (p.type === 'country_switch') {
+            fbLog(`BSP: ${p.countryName || p.country}...`, 'info');
+            fbSetStage('bsplink', 'active', `${p.countryName || p.country}...`);
+          }
+        });
+      fbSetStage('bsplink', 'done', `${appState.results.length} codes (mock)`, { text: 'MOCK', type: 'warning' });
+
+      // Re-analyze + report
+      appState.analysisResults = ActionAnalyzer.analyzeAll(json, appState.columnMapping, appState.results);
+      fbSetStage('report', 'active', 'Generation rapport...');
+      fbLog('GENERATION rapport & email', 'stage');
+      generateActionsTable();
+      const actionsCount = appState.actionsTable?.summary?.totalActions || 0;
+      fbSetStage('report', 'done', `${actionsCount} actions`, { text: `${actionsCount} actions`, type: 'success' });
+      fbLog(`${actionsCount} actions generees`, 'success');
+
+      fbSetStatus('Pipeline termine!');
+      fbLog('', 'info');
+      fbLog('PIPELINE TERMINE — Rapport pret a telecharger.', 'stage');
+      document.getElementById('fullBotActions').classList.remove('hidden');
+      fullBotActive = false;
+
+      if (typeof runBotAnomalyDetection === 'function') runBotAnomalyDetection();
+      if (typeof runBotActionAnalysis === 'function') runBotActionAnalysis();
+    }
   }
 
   // ---- Wire up buttons ----
