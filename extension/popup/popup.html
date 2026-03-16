@@ -24,7 +24,7 @@
     .header .version { color: #E8871E; font-size: 10px; font-weight: 600; }
     .content { padding: 16px 20px; }
 
-    /* Bot button */
+    /* Bot launch button (idle state) */
     .btn-bot {
       display: flex;
       align-items: center;
@@ -40,22 +40,46 @@
       color: #fff;
       background: linear-gradient(135deg, #4A55A2, #2D2F6D);
       transition: all 0.2s;
+    }
+    .btn-bot:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(74,85,162,0.5); }
+    .btn-bot:active { transform: translateY(0); }
+    .btn-bot .bot-icon { font-size: 20px; }
+
+    /* Running state */
+    .btn-bot.running {
+      background: linear-gradient(135deg, #E8871E, #c06a10);
+      cursor: default;
       position: relative;
       overflow: hidden;
     }
-    .btn-bot::before {
+    .btn-bot.running::before {
       content: '';
       position: absolute;
       top: 0; left: -100%;
       width: 200%; height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-      animation: shimmer 2.5s infinite;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+      animation: shimmer 2s infinite;
     }
     @keyframes shimmer { 0% { left: -100%; } 100% { left: 100%; } }
-    .btn-bot:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(74,85,162,0.5); }
-    .btn-bot:active { transform: translateY(0); }
-    .btn-bot .bot-icon { font-size: 20px; }
-    .btn-bot.running { background: linear-gradient(135deg, #E8871E, #c06a10); pointer-events: none; }
+
+    /* Stop button */
+    .btn-stop {
+      display: none;
+      width: 100%;
+      padding: 10px;
+      margin-top: 8px;
+      border: 1px solid #e74c3c;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      color: #e74c3c;
+      background: transparent;
+      transition: all 0.2s;
+    }
+    .btn-stop:hover { background: rgba(231,76,60,0.1); }
+    .btn-stop.visible { display: block; }
 
     .separator {
       display: flex;
@@ -91,7 +115,7 @@
     }
     .btn-secondary:hover { border-color: #4A55A2; color: #fff; background: rgba(74,85,162,0.1); }
 
-    /* Status */
+    /* Status stages */
     .bot-status {
       margin-top: 14px;
       padding: 10px 12px;
@@ -111,6 +135,7 @@
     }
     .bot-status .stage.active { color: #E8871E; font-weight: 600; }
     .bot-status .stage.done { color: #4caf50; }
+    .bot-status .stage.error { color: #e74c3c; }
     .bot-status .stage-dot {
       width: 6px; height: 6px;
       border-radius: 50%;
@@ -119,6 +144,7 @@
     }
     .bot-status .stage.active .stage-dot { background: #E8871E; animation: pulse 1.2s infinite; }
     .bot-status .stage.done .stage-dot { background: #4caf50; }
+    .bot-status .stage.error .stage-dot { background: #e74c3c; }
     @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
     /* Stats row */
@@ -152,15 +178,17 @@
     <div class="logo-box"><img src="../icons/logo-apg.png" alt="APG"></div>
     <div>
       <h1>eBulletin Bot</h1>
-      <span class="version">v4.0</span>
+      <span class="version">v4.1</span>
     </div>
   </div>
 
   <div class="content">
     <button class="btn-bot" id="btnLaunchBot">
       <span class="bot-icon">🤖</span>
-      Lancer le Bot eBulletin
+      <span id="btnLabel">Lancer le Bot</span>
     </button>
+
+    <button class="btn-stop" id="btnStopBot">Arreter le Bot</button>
 
     <div class="bot-status" id="botStatus">
       <div class="stage" id="stage-login" data-stage="login">
@@ -182,7 +210,7 @@
 
     <div class="separator">ou</div>
 
-    <a href="#" class="btn-secondary" id="openDashboard">📊 Ouvrir le Dashboard complet</a>
+    <a href="#" class="btn-secondary" id="openDashboard">Ouvrir le Dashboard complet</a>
 
     <div class="stats">
       <div class="stat">

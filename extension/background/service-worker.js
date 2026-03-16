@@ -71,6 +71,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
+// Simple message handler for popup queries
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_BOT_STATE') {
+    sendResponse({
+      isActive: botModeState.isActive,
+      stage: botModeState.stage,
+      isCancelled: botModeState.isCancelled
+    });
+    return true;
+  }
+  if (message.type === 'RESET_BOT_STATE') {
+    botModeState.isActive = false;
+    botModeState.isCancelled = false;
+    botModeState.stage = null;
+    syncBotState('idle', null);
+    sendResponse({ success: true });
+    return true;
+  }
+  return false;
+});
+
 // Long-lived port connection from dashboard
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'processing') return;
@@ -683,6 +704,8 @@ async function handleStartProcessing(payload, port) {
 
 function sendBotStatus(port, stage, message, data) {
   botModeState.stage = stage;
+  // Sync to storage so the popup can show correct state
+  syncBotState(stage, message);
   try {
     port.postMessage({
       type: 'FULL_BOT_STATUS',
@@ -694,10 +717,34 @@ function sendBotStatus(port, stage, message, data) {
   }
 }
 
+/**
+ * Sync bot state to chrome.storage so the popup always shows the correct status.
+ */
+function syncBotState(stage, message) {
+  const isRunning = botModeState.isActive;
+  const isError = stage === 'error' || stage === 'cancelled';
+  const isDone = stage === 'complete' || stage === 'done';
+
+  let state = 'IDLE';
+  if (isRunning && !isError && !isDone) state = 'BOT_RUNNING';
+  else if (isError) state = 'ERROR';
+  else if (isDone) state = 'DONE';
+
+  chrome.storage.local.set({
+    currentJob: {
+      state,
+      stage: stage || null,
+      message: message || null,
+      lastUpdate: Date.now()
+    }
+  }).catch(() => {});
+}
+
 function handleCancelFullBot(port) {
   botModeState.isCancelled = true;
   botModeState.isActive = false;
   botModeState.stage = null;
+  syncBotState('cancelled', 'Bot annule par l\'utilisateur.');
   chrome.alarms.clear('keepAlive');
   try {
     port.postMessage({
