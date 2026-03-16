@@ -57,6 +57,10 @@
       case 'SCRAPE_SMART_LITE':
         return await scrapeSmartLite(message.payload);
 
+      // ---- Portal Scan ----
+      case 'SCAN_PORTAL_SERVICES':
+        return scanPortalServices();
+
       // ---- Utility ----
       case 'PING':
         return { status: 'alive', url: window.location.href, script: 'iata-ebulletin' };
@@ -279,6 +283,20 @@
       }
     }
 
+    // Strategy 2.5: Search Shadow DOM (Salesforce Lightning / LWC components)
+    const shadowLinks = deepQuerySelectorAll('a, button, [role="link"], [role="button"]');
+    for (const el of shadowLinks) {
+      const text = (el.textContent || '').trim().toLowerCase();
+      for (const pattern of tilePatterns) {
+        if (text.includes(pattern.toLowerCase())) {
+          log('Found tile in Shadow DOM:', text.substring(0, 60));
+          el.click();
+          await waitForNavigation(15000);
+          return { success: true, message: `Clicked tile in Shadow DOM: ${pattern}` };
+        }
+      }
+    }
+
     // Strategy 3: Try direct URL navigation via known patterns
     for (const href of fallbackHrefs) {
       try {
@@ -392,6 +410,90 @@
     console.log(LOG_PREFIX, ...args);
   }
 
+  /**
+   * Search through Shadow DOM to find elements matching a selector.
+   * Salesforce Lightning (LWC) uses Shadow DOM extensively.
+   */
+  function deepQuerySelectorAll(selector, root = document) {
+    const results = [];
+    // Search in light DOM
+    try {
+      root.querySelectorAll(selector).forEach(el => results.push(el));
+    } catch(e) {}
+
+    // Search in shadow roots
+    const allElements = root.querySelectorAll('*');
+    for (const el of allElements) {
+      if (el.shadowRoot) {
+        try {
+          el.shadowRoot.querySelectorAll(selector).forEach(el => results.push(el));
+        } catch(e) {}
+        // Recurse into shadow root
+        const nested = deepQuerySelectorAll(selector, el.shadowRoot);
+        results.push(...nested);
+      }
+    }
+    return results;
+  }
+
+  function deepQuerySelector(selector, root = document) {
+    const all = deepQuerySelectorAll(selector, root);
+    return all.length > 0 ? all[0] : null;
+  }
+
+  // ============================================================
+  //  SCAN_PORTAL_SERVICES
+  //  Scan the portal page for all available service links/tiles
+  //  Returns: { services: [...], url, title }
+  // ============================================================
+  function scanPortalServices() {
+    const services = [];
+    const seen = new Set();
+
+    // Scan all links (light DOM + shadow DOM)
+    const allLinks = deepQuerySelectorAll('a[href]');
+    for (const a of allLinks) {
+      const text = (a.textContent || '').trim().replace(/\s+/g, ' ');
+      const href = a.href || a.getAttribute('href') || '';
+      if (text.length < 2 || text.length > 300 || !href) continue;
+      const key = text.substring(0, 50) + '|' + href;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      services.push({ text: text.substring(0, 200), href, tag: 'a' });
+    }
+
+    // Scan buttons
+    const allButtons = deepQuerySelectorAll('button');
+    for (const btn of allButtons) {
+      const text = (btn.textContent || '').trim().replace(/\s+/g, ' ');
+      if (text.length < 2 || text.length > 300) continue;
+      const key = 'btn|' + text.substring(0, 50);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      services.push({ text: text.substring(0, 200), tag: 'button' });
+    }
+
+    // Scan elements with href attributes (common in LWC)
+    const allClickable = deepQuerySelectorAll('[href], [data-href], [data-url], [onclick]');
+    for (const el of allClickable) {
+      const text = (el.textContent || '').trim().replace(/\s+/g, ' ');
+      const href = el.href || el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-url') || '';
+      if (text.length < 2 || text.length > 300) continue;
+      const key = text.substring(0, 50) + '|' + href;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      services.push({ text: text.substring(0, 200), href, tag: el.tagName.toLowerCase() });
+    }
+
+    log('Scanned portal services:', services.length, 'items found');
+    return {
+      services,
+      url: window.location.href,
+      title: document.title,
+      bodyTextPreview: (document.body?.textContent || '').substring(0, 500).replace(/\s+/g, ' ')
+    };
+  }
+
   // ============================================================
   //  1. NAVIGATE_TO_EBULLETIN
   //  Click "AIRS / CAIRS Online Bulletin" tile on portal homepage
@@ -501,10 +603,17 @@
     const hasSubscription = pageTextLower.includes('subscription information') ||
       pageTextLower.includes('status: active');
 
+    const hasDownloadLinks = downloadLinks.length > 0;
+
     const isEbulletinPage = hasHeader || (hasWeeklyTab && hasDailyTab) ||
       (hasGenerateButton && (hasWeeklyTab || hasFilterOptions)) ||
+      hasGeneratedReports ||
+      hasDownloadLinks ||
+      (hasWeeklyTab && hasGenerateButton) ||
       url.includes('ebulletin') || url.includes('bulletin') ||
-      url.includes('airs');
+      url.includes('airs.iata') || url.includes('cairs.iata') ||
+      (pageTextLower.includes('weekly') && pageTextLower.includes('bulletin')) ||
+      (pageTextLower.includes('generate') && pageTextLower.includes('report') && pageTextLower.includes('bulletin'));
 
     return {
       isEbulletinPage,

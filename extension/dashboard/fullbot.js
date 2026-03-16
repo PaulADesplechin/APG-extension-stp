@@ -180,6 +180,13 @@
         fbLog(message || 'Navigation vers la page eBulletin', 'info');
         break;
 
+      case 'waiting_manual_nav':
+        fbSetStatus('⚠️ Action requise — Naviguez vers E-Bulletin');
+        fbSetStage('ebulletin', 'active', 'En attente de votre navigation manuelle...');
+        fbLog(message || 'Navigation automatique echouee. Cliquez sur le service E-Bulletin sur le portail.', 'warning');
+        if (data?.instruction) fbLog(data.instruction, 'warning');
+        break;
+
       case 'ebulletin_found':
       case 'checking_ebulletin':
         fbSetStage('ebulletin', 'active', message || 'Page eBulletin trouvee');
