@@ -1482,16 +1482,20 @@ async function handleIATACodeSearchEnrichment(agentsToEnrich, portalTabId, port)
           payload: { iataCode: agent.iataCode }
         });
 
-        if (searchResult?.found) {
+        // Content script returns { success, data: { iataCode, legalName, status, riskStatus, ... } }
+        const csData = searchResult?.data || searchResult;
+        if (searchResult?.success && csData) {
           enrichedResults.push({
             iataCode: agent.iataCode,
             country: agent.country,
-            agentName: searchResult.agentName || agent.agentName,
-            agentStatus: searchResult.status || agent.agentStatus,
-            riskStatus: searchResult.riskStatus || 'N/A',
-            location: searchResult.location || '',
+            agentName: csData.legalName || csData.tradeName || csData.agentName || agent.agentName,
+            agentStatus: csData.status || agent.agentStatus,
+            riskStatus: csData.riskStatus || 'N/A',
+            location: csData.country || '',
+            accreditationType: csData.accreditationType || '',
+            financialSecurity: csData.validFinancialSecurity || '',
             lookupStatus: 'found_via_code_search',
-            codeSearchDetails: searchResult.details || {}
+            codeSearchDetails: csData
           });
         }
 

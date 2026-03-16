@@ -270,10 +270,16 @@
         break;
 
       case 'code_search_starting':
+      case 'code_search_navigating':
+      case 'code_search_progress':
       case 'code_search_complete':
       case 'code_search_skipped':
       case 'code_search_warning':
-        fbLog(message, stage.includes('warning') ? 'warning' : 'info');
+        if (stage === 'code_search_progress' || stage === 'code_search_navigating') {
+          fbSetStatus('Enrichissement Code Search...');
+          fbSetStage('bsplink', 'active', message || 'IATA Code Search...');
+        }
+        fbLog(message, stage.includes('warning') ? 'warning' : stage.includes('complete') ? 'success' : 'info');
         break;
 
       case 'complete':

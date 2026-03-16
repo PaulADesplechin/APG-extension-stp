@@ -1203,7 +1203,7 @@
   // ============================================================
 
   async function searchIataCode(payload) {
-    const { code } = payload || {};
+    const code = payload?.iataCode || payload?.code;
     if (!code) return { success: false, error: 'No IATA code provided' };
 
     log('Searching IATA code:', code);
@@ -1465,7 +1465,7 @@
   // ============================================================
 
   async function searchSmartAgent(payload) {
-    const { code } = payload || {};
+    const code = payload?.iataCode || payload?.code;
     if (!code) return { success: false, error: 'No agent code provided' };
 
     log('Searching SMART agent:', code);
