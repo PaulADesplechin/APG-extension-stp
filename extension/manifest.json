@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "APG BSP Link - Agent Status Checker",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Automatise la vérification du statut Ticketing Authority sur BSP Link pour le traitement eBulletin APG Airlines",
   "permissions": [
     "activeTab",
@@ -15,11 +15,15 @@
     "https://portal.iata.org/*",
     "https://www.bsplink.iata.org/*",
     "https://bsplink.iata.org/*",
+    "https://ebulletin.iata.org/*",
+    "https://smart.iata.org/*",
+    "https://airs.iata.org/*",
+    "https://cairs.iata.org/*",
+    "https://*.iata.org/*",
     "http://localhost:3001/*"
   ],
   "background": {
-    "service_worker": "background/service-worker.js",
-    "type": "module"
+    "service_worker": "background/service-worker.js"
   },
   "content_scripts": [
     {
@@ -31,11 +35,27 @@
     },
     {
       "matches": [
+        "https://smart.iata.org/*",
+        "https://ebulletin.iata.org/*",
+        "https://airs.iata.org/*",
+        "https://cairs.iata.org/*"
+      ],
+      "js": ["content-scripts/iata-ebulletin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
         "https://www.bsplink.iata.org/*",
         "https://bsplink.iata.org/*"
       ],
       "js": ["content-scripts/bsplink-scraper.js"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["dashboard/*", "icons/*", "lib/*"],
+      "matches": ["<all_urls>"]
     }
   ],
   "action": {

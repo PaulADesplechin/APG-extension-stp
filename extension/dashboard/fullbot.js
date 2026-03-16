@@ -117,7 +117,36 @@
       handleBSPProgress(msg.payload);
     } else if (msg.type === 'PROCESSING_COMPLETE') {
       handleBSPComplete(msg);
+    } else if (msg.type === 'CODE_SEARCH_RESULT') {
+      handleCodeSearchResult(msg.payload);
+    } else if (msg.type === 'SMART_RESULT') {
+      handleSmartResult(msg.payload);
+    } else if (msg.type === 'ENRICHMENT_COMPLETE') {
+      handleEnrichmentComplete(msg.payload);
     }
+  }
+
+  // ---- Handle IATA Code Search enrichment data ----
+  function handleCodeSearchResult(payload) {
+    if (!appState.codeSearchResults) appState.codeSearchResults = {};
+    const code = payload.iataCode;
+    appState.codeSearchResults[code] = payload;
+    fbLog(`Code Search ${code}: ${payload.status || 'N/A'} — Risk: ${payload.riskStatus || 'N/A'}`, 'info');
+  }
+
+  // ---- Handle SMART enrichment data ----
+  function handleSmartResult(payload) {
+    if (!appState.smartResults) appState.smartResults = {};
+    const code = payload.iataCode;
+    appState.smartResults[code] = payload;
+    fbLog(`SMART ${code}: FSU ${payload.financialSecurityUtilization || 'N/A'}%`, 'info');
+  }
+
+  // ---- Handle enrichment complete ----
+  function handleEnrichmentComplete(payload) {
+    const codeSearchCount = Object.keys(appState.codeSearchResults || {}).length;
+    const smartCount = Object.keys(appState.smartResults || {}).length;
+    fbLog(`Enrichissement termine: ${codeSearchCount} Code Search, ${smartCount} SMART`, 'success');
   }
 
   // ---- Handle bot stage updates ----
@@ -126,28 +155,40 @@
 
     switch (stage) {
       case 'opening_portal':
+      case 'checking_login':
         fbSetStatus('Ouverture du portail IATA...');
         fbSetStage('login', 'active', 'Ouverture du portail...');
-        fbLog('Ouverture du portail IATA', 'info');
+        fbLog(message || 'Ouverture du portail IATA', 'info');
         break;
 
       case 'waiting_login':
         fbSetStatus('En attente de votre connexion...');
         fbSetStage('login', 'active', message || 'Connectez-vous et validez la 2FA...');
-        if (message && message.includes('2FA')) {
-          fbLog(message, 'warning');
-        }
+        fbLog(message || 'Connectez-vous et validez la 2FA...', message?.includes('2FA') ? 'warning' : 'info');
         break;
 
+      case 'logged_in':
       case 'login_complete':
         fbSetStage('login', 'done', 'Connecte!', { text: 'OK', type: 'success' });
         fbLog('Connexion IATA reussie!', 'success');
         break;
 
       case 'navigating_ebulletin':
+      case 'retrying_ebulletin':
         fbSetStatus('Navigation vers eBulletin...');
-        fbSetStage('ebulletin', 'active', 'Navigation en cours...');
-        fbLog('Navigation vers la page eBulletin', 'info');
+        fbSetStage('ebulletin', 'active', message || 'Navigation en cours...');
+        fbLog(message || 'Navigation vers la page eBulletin', 'info');
+        break;
+
+      case 'ebulletin_found':
+      case 'checking_ebulletin':
+        fbSetStage('ebulletin', 'active', message || 'Page eBulletin trouvee');
+        fbLog(message || 'Page eBulletin detectee', 'success');
+        break;
+
+      case 'weekly_tab_warning':
+      case 'generate_report_warning':
+        fbLog(message, 'warning');
         break;
 
       case 'downloading_ebulletin':
@@ -157,9 +198,14 @@
         break;
 
       case 'ebulletin_downloaded':
+      case 'sending_to_dashboard':
         fbSetStage('ebulletin', 'done', `${data?.fileName || 'eBulletin'} telecharge`,
           { text: data?.fileSize ? `${(data.fileSize/1024).toFixed(0)} Ko` : 'OK', type: 'success' });
         fbLog(`Fichier telecharge: ${data?.fileName || 'eBulletin.xlsx'}`, 'success');
+        break;
+
+      case 'data_processed':
+        fbLog(`Donnees traitees: ${data?.rowCount || 0} lignes`, 'success');
         break;
 
       case 'waiting_processing':
@@ -167,10 +213,60 @@
         fbSetStage('processing', 'active', 'Nettoyage & analyse...');
         break;
 
+      case 'clicking_weekly_tab':
+        fbSetStatus('Clic sur WEEKLY eBulletin...');
+        fbSetStage('ebulletin', 'active', 'Clic sur l\'onglet WEEKLY...');
+        fbLog('Clic sur l\'onglet WEEKLY eBulletin', 'info');
+        break;
+
+      case 'generating_report':
+        fbSetStatus('Generation du rapport hebdomadaire...');
+        fbSetStage('ebulletin', 'active', 'Generation du rapport...');
+        fbLog('Clic sur "Generate Weekly Report"', 'info');
+        break;
+
+      case 'waiting_report':
+        fbSetStatus('Attente de la generation...');
+        fbSetStage('ebulletin', 'active', 'Attente du rapport...');
+        fbLog('Attente de la generation du fichier...', 'info');
+        break;
+
+      case 'enriching_code_search':
+        fbSetStatus('Enrichissement Code Search...');
+        fbSetStage('bsplink', 'active', message || 'IATA Code Search...');
+        if (message) fbLog(message, 'info');
+        break;
+
+      case 'enriching_smart':
+        fbSetStatus('Enrichissement SMART...');
+        fbSetStage('bsplink', 'active', message || 'SMART Risk Management...');
+        if (message) fbLog(message, 'info');
+        break;
+
+      case 'bsplink_starting':
+      case 'bsplink_opening':
+      case 'bsplink_connected':
       case 'bsplink_scraping':
         fbSetStatus('Scraping BSP Link...');
         fbSetStage('bsplink', 'active', message || 'Scraping en cours...');
         if (message) fbLog(message, 'info');
+        break;
+
+      case 'waiting_bsp_login':
+        fbSetStage('bsplink', 'active', message || 'Attente connexion BSP Link...');
+        fbLog(message || 'En attente de connexion BSP Link...', 'warning');
+        break;
+
+      case 'bsplink_country':
+        fbSetStage('bsplink', 'active', message || 'Changement de pays...');
+        if (message) fbLog(`BSP Link: ${message}`, 'info');
+        break;
+
+      case 'code_search_starting':
+      case 'code_search_complete':
+      case 'code_search_skipped':
+      case 'code_search_warning':
+        fbLog(message, stage.includes('warning') ? 'warning' : 'info');
         break;
 
       case 'complete':
