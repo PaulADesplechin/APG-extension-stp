@@ -189,7 +189,7 @@
   }
 
   /**
-   * Fill a Salesforce Lightning / legacy input robustly.
+   * Fill an input field robustly — works with React, Angular and other frameworks.
    */
   async function fillInput(field, value) {
     field.focus();
@@ -243,76 +243,32 @@
 
   /**
    * Click a service tile on the portal homepage.
-   * These tiles live in "Favorite Services" or service carousel areas.
+   * The portal has "Favorite Services" with a "See All" link.
    * Returns { success, message } or throws.
    */
   async function clickServiceTile(tileTexts, fallbackHrefs = []) {
     const tilePatterns = Array.isArray(tileTexts) ? tileTexts : [tileTexts];
 
-    // Strategy 1: Look for links/buttons matching tile text
-    const clickableSelectors = [
-      'a', 'button',
-      '[role="link"]', '[role="button"]',
-      '[class*="tile"] a', '[class*="card"] a',
-      '[class*="service"] a', '[class*="favorite"] a',
-      '.slds-card a', '.slds-tile a',
-      'lightning-card a', 'lightning-button',
-      '[class*="carousel"] a', '[class*="slider"] a',
-      'article a', '[class*="featured"] a'
-    ];
+    // Strategy 1: Direct search — look for links/buttons matching tile text on current page
+    log('Strategy 1: Searching for service tile on current page...');
+    const found1 = await searchAndClickTile(tilePatterns);
+    if (found1) return found1;
 
-    for (const selector of clickableSelectors) {
-      const el = findElementByText(selector, tilePatterns);
-      if (el) {
-        log('Found tile via selector:', selector, '— text:', el.textContent.trim().substring(0, 60));
-        el.click();
-        await waitForNavigation(15000);
-        return { success: true, message: `Clicked tile: ${el.textContent.trim().substring(0, 60)}` };
-      }
+    // Strategy 1.5: Click "See All" link to show all services, then search again
+    log('Strategy 1.5: Clicking "See All" to see all services...');
+    const seeAllLink = findElementByText('a', ['See All', 'Voir tout', 'Show All', 'View All']);
+    if (seeAllLink) {
+      log('Found "See All" link:', seeAllLink.href || seeAllLink.textContent);
+      seeAllLink.click();
+      await waitForNavigation(10000);
+      await wait(3000);
+      // Now search on the all-services page
+      const found15 = await searchAndClickTile(tilePatterns);
+      if (found15) return found15;
     }
 
-    // Strategy 2: Find any visible element with matching text and climb to clickable parent
-    const allElements = document.querySelectorAll('*');
-    for (const el of allElements) {
-      // Only check direct text nodes (avoid matching deep children)
-      const directText = Array.from(el.childNodes)
-        .filter(n => n.nodeType === Node.TEXT_NODE)
-        .map(n => n.textContent.trim())
-        .join(' ')
-        .toLowerCase();
-
-      if (!directText) continue;
-
-      for (const pattern of tilePatterns) {
-        if (directText.includes(pattern.toLowerCase())) {
-          // Climb to nearest clickable ancestor
-          let clickable = el.closest('a') || el.closest('button') || el.closest('[role="link"]');
-          if (!clickable && (el.tagName === 'A' || el.tagName === 'BUTTON')) clickable = el;
-          if (!clickable) clickable = el; // click the element itself as last resort
-
-          log('Found tile via text scan — clicking:', clickable.tagName);
-          clickable.click();
-          await waitForNavigation(15000);
-          return { success: true, message: `Clicked tile element: ${pattern}` };
-        }
-      }
-    }
-
-    // Strategy 2.5: Search Shadow DOM (Salesforce Lightning / LWC components)
-    const shadowLinks = deepQuerySelectorAll('a, button, [role="link"], [role="button"]');
-    for (const el of shadowLinks) {
-      const text = (el.textContent || '').trim().toLowerCase();
-      for (const pattern of tilePatterns) {
-        if (text.includes(pattern.toLowerCase())) {
-          log('Found tile in Shadow DOM:', text.substring(0, 60));
-          el.click();
-          await waitForNavigation(15000);
-          return { success: true, message: `Clicked tile in Shadow DOM: ${pattern}` };
-        }
-      }
-    }
-
-    // Strategy 3: Try direct URL navigation via known patterns
+    // Strategy 2: Try direct URL navigation via known patterns
+    log('Strategy 2: Trying direct URLs...');
     for (const href of fallbackHrefs) {
       try {
         const url = href.startsWith('http') ? href : window.location.origin + href;
@@ -326,6 +282,75 @@
     }
 
     return { success: false, message: 'Service tile not found on page.' };
+  }
+
+  /**
+   * Search for a tile/link matching the given text patterns and click it.
+   * Returns { success, message } or null if not found.
+   */
+  async function searchAndClickTile(tilePatterns) {
+    // Search all links and buttons
+    const clickableSelectors = [
+      'a', 'button',
+      '[role="link"]', '[role="button"]',
+      '[class*="tile"] a', '[class*="card"] a',
+      '[class*="service"] a', '[class*="favorite"] a',
+      'article a', '[class*="featured"] a',
+      'img[alt]' // images with alt text matching service name
+    ];
+
+    for (const selector of clickableSelectors) {
+      const el = findElementByText(selector, tilePatterns);
+      if (el) {
+        log('Found tile via selector:', selector, '— text:', el.textContent.trim().substring(0, 80));
+        el.click();
+        await waitForNavigation(15000);
+        return { success: true, message: `Clicked tile: ${el.textContent.trim().substring(0, 80)}` };
+      }
+    }
+
+    // Check images with alt text (service tiles are often images)
+    const images = document.querySelectorAll('img[alt]');
+    for (const img of images) {
+      const alt = (img.alt || '').toLowerCase();
+      for (const pattern of tilePatterns) {
+        if (alt.includes(pattern.toLowerCase())) {
+          // Click the image's parent link if it exists
+          const clickable = img.closest('a') || img.closest('button') || img.closest('[role="link"]') || img;
+          log('Found service via image alt text:', alt, '— clicking:', clickable.tagName);
+          clickable.click();
+          await waitForNavigation(15000);
+          return { success: true, message: `Clicked service image: ${alt}` };
+        }
+      }
+    }
+
+    // Find any visible element with matching text and climb to clickable parent
+    const allElements = document.querySelectorAll('*');
+    for (const el of allElements) {
+      const directText = Array.from(el.childNodes)
+        .filter(n => n.nodeType === Node.TEXT_NODE)
+        .map(n => n.textContent.trim())
+        .join(' ')
+        .toLowerCase();
+
+      if (!directText) continue;
+
+      for (const pattern of tilePatterns) {
+        if (directText.includes(pattern.toLowerCase())) {
+          let clickable = el.closest('a') || el.closest('button') || el.closest('[role="link"]');
+          if (!clickable && (el.tagName === 'A' || el.tagName === 'BUTTON')) clickable = el;
+          if (!clickable) clickable = el;
+
+          log('Found tile via text scan — clicking:', clickable.tagName, directText.substring(0, 60));
+          clickable.click();
+          await waitForNavigation(15000);
+          return { success: true, message: `Clicked tile element: ${pattern}` };
+        }
+      }
+    }
+
+    return null; // Not found
   }
 
   /**
@@ -427,7 +452,7 @@
 
   /**
    * Search through Shadow DOM to find elements matching a selector.
-   * Salesforce Lightning (LWC) uses Shadow DOM extensively.
+   * Kept as fallback utility in case some IATA pages use Web Components.
    */
   function deepQuerySelectorAll(selector, root = document) {
     const results = [];
@@ -462,14 +487,14 @@
   //  Returns: { services: [...], url, title }
   // ============================================================
   async function scanPortalServices() {
-    // Wait for tiles to load before scanning
+    // Wait for page to finish loading
     await waitForPortalTiles(15000);
 
     const services = [];
     const seen = new Set();
 
-    // Scan all links (light DOM + shadow DOM)
-    const allLinks = deepQuerySelectorAll('a[href]');
+    // Scan all links
+    const allLinks = document.querySelectorAll('a[href]');
     for (const a of allLinks) {
       const text = (a.textContent || '').trim().replace(/\s+/g, ' ');
       const href = a.href || a.getAttribute('href') || '';
@@ -481,7 +506,7 @@
     }
 
     // Scan buttons
-    const allButtons = deepQuerySelectorAll('button');
+    const allButtons = document.querySelectorAll('button');
     for (const btn of allButtons) {
       const text = (btn.textContent || '').trim().replace(/\s+/g, ' ');
       if (text.length < 2 || text.length > 300) continue;
@@ -491,16 +516,17 @@
       services.push({ text: text.substring(0, 200), tag: 'button' });
     }
 
-    // Scan elements with href attributes (common in LWC)
-    const allClickable = deepQuerySelectorAll('[href], [data-href], [data-url], [onclick]');
-    for (const el of allClickable) {
-      const text = (el.textContent || '').trim().replace(/\s+/g, ' ');
-      const href = el.href || el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-url') || '';
+    // Scan images with alt text (service tiles may be images)
+    const allImages = document.querySelectorAll('img[alt]');
+    for (const img of allImages) {
+      const text = (img.alt || '').trim();
       if (text.length < 2 || text.length > 300) continue;
-      const key = text.substring(0, 50) + '|' + href;
+      const parent = img.closest('a');
+      const href = parent ? (parent.href || '') : '';
+      const key = 'img|' + text.substring(0, 50);
       if (seen.has(key)) continue;
       seen.add(key);
-      services.push({ text: text.substring(0, 200), href, tag: el.tagName.toLowerCase() });
+      services.push({ text: text.substring(0, 200), href, tag: 'img' });
     }
 
     log('Scanned portal services:', services.length, 'items found');
@@ -520,8 +546,7 @@
   async function navigateToEbulletin() {
     log('Navigating to eBulletin...');
 
-    // Wait for Salesforce Lightning page to fully render
-    // The "Favorite Services" section loads asynchronously (visible spinner on portal)
+    // Wait for "Favorite Services" section to finish loading (async content + spinner)
     log('Waiting for portal tiles to load...');
     await waitForPortalTiles(20000);
 
@@ -556,62 +581,59 @@
   }
 
   /**
-   * Wait for the Salesforce Lightning portal tiles to finish loading.
-   * The "Favorite Services" section loads async and shows a spinner.
+   * Wait for the portal page to finish loading its content.
+   * The "Favorite Services" section loads asynchronously and shows a spinner.
    */
   async function waitForPortalTiles(maxMs = 20000) {
     const pollInterval = 500;
     let elapsed = 0;
 
     while (elapsed < maxMs) {
-      // Check if spinner is still visible
+      // Check if any spinner/loader is still visible
       const spinners = document.querySelectorAll(
-        '.slds-spinner, [class*="spinner"], [class*="loading"], ' +
-        '[role="progressbar"], [class*="slds-spinner"]'
-      );
-      // Also check Shadow DOM for spinners
-      const shadowSpinners = deepQuerySelectorAll(
-        '.slds-spinner, [class*="spinner"], [role="progressbar"]'
+        '[class*="spinner"], [class*="loading"], [class*="loader"], ' +
+        '[role="progressbar"], [role="status"]'
       );
 
       let hasActiveSpinner = false;
-      for (const spinner of [...spinners, ...shadowSpinners]) {
-        // Check if spinner is visible (not hidden)
+      for (const spinner of spinners) {
         const rect = spinner.getBoundingClientRect();
         const style = window.getComputedStyle(spinner);
         if (rect.width > 0 && rect.height > 0 &&
-            style.display !== 'none' && style.visibility !== 'hidden') {
+            style.display !== 'none' && style.visibility !== 'hidden' &&
+            style.opacity !== '0') {
           hasActiveSpinner = true;
           break;
         }
       }
 
-      // Check if "Favorite Services" or "See All" link is loaded (tiles ready)
-      const hasTiles = !!(
-        findElementByText('a, button, span, div', ['See All']) ||
-        document.querySelector('[class*="favoriteService"], [class*="service-tile"], [class*="slds-card"]') ||
-        deepQuerySelectorAll('[class*="favoriteService"], [class*="service-tile"], article').length > 0
-      );
+      // Check if content is loaded: "Favorite Services" heading, "See All" link, or service tiles
+      const hasSeeAll = !!findElementByText('a', ['See All', 'Voir tout']);
+      const hasFavHeader = !!findElementByText('h2, h3, h4, span, div', ['Favorite Services', 'Services']);
+      const hasContent = document.querySelectorAll('a[href]').length > 10;
 
-      // Check if we have clickable service links
-      const serviceLinks = deepQuerySelectorAll('a[href]');
-      const hasServiceContent = serviceLinks.length > 10; // Portal with loaded tiles has many links
+      if (!hasActiveSpinner && (hasSeeAll || (hasFavHeader && hasContent))) {
+        log('Portal content loaded. See All:', hasSeeAll, 'Links:', document.querySelectorAll('a[href]').length);
+        await wait(1500); // Extra settle time
+        return true;
+      }
 
-      if (!hasActiveSpinner && (hasTiles || hasServiceContent)) {
-        log('Portal tiles loaded. Links found:', serviceLinks.length);
-        await wait(1000); // Extra settle time after tiles appear
+      // Also check: DOM settled (no more mutations for 1s)
+      if (!hasActiveSpinner && hasContent && elapsed > 5000) {
+        log('Portal loaded (no spinner + many links).');
+        await wait(1000);
         return true;
       }
 
       if (elapsed > 0 && elapsed % 5000 === 0) {
-        log('Still waiting for portal tiles to load...', elapsed / 1000, 's');
+        log('Still waiting for portal to load...', elapsed / 1000, 's');
       }
 
       await wait(pollInterval);
       elapsed += pollInterval;
     }
 
-    log('Portal tiles wait timeout after', maxMs / 1000, 's — proceeding anyway');
+    log('Portal wait timeout after', maxMs / 1000, 's — proceeding anyway');
     return false;
   }
 

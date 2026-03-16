@@ -809,12 +809,11 @@ async function handleStartFullBot(port) {
     // ================================================================
     // STEP 2: Navigate to eBulletin service
     // Multi-strategy approach:
-    //   A) Try content script tile click (Salesforce portal)
+    //   A) Try content script tile click (portal page — waits for tiles to load, tries "See All")
     //   B) Try SCAN_PORTAL_SERVICES to discover correct link
-    //   C) Try direct URL navigation via chrome.tabs.update
-    //   D) Scan all open tabs for eBulletin
-    //   E) Open new tab with known eBulletin URLs
-    //   F) Wait for user to navigate manually (monitor all tabs)
+    //   C) Scan all open tabs for eBulletin
+    //   D) Try direct URL navigation via chrome.tabs.update
+    //   E) Wait for user to navigate manually (monitor all tabs)
     // ================================================================
     sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Navigation vers eBulletin...');
 
@@ -825,8 +824,8 @@ async function handleStartFullBot(port) {
     let ebulletinTabId = null;
 
     // ---- Strategy A: Content script tile click ----
-    sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Recherche du service E-Bulletin sur le portail (attente des tuiles)...');
-    // Give the content script 30s — it now waits for Salesforce tiles to load first
+    sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Recherche du service E-Bulletin sur le portail (attente du chargement)...');
+    // Give the content script 45s — it waits for portal tiles to load first, then tries "See All"
     const navResult = await sendToTab(iataTab.id, { type: 'NAVIGATE_TO_EBULLETIN' }, 45000);
 
     if (navResult?.success) {
