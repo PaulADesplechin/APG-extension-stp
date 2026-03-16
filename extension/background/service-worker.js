@@ -918,6 +918,41 @@ async function handleStartFullBot(port) {
     sendBotStatus(port, 'logged_in', 'Etape 1/4 - Connecte a BSP Link!');
     await focusTab(bspTab.id);
 
+    // Handle initial ISOC selection page (if we land on it)
+    await ensureContentScript(bspTab.id, 'bsplink');
+    const pageInfo = await sendToTab(bspTab.id, { type: 'GET_PAGE_INFO' });
+
+    if (pageInfo?.pageType === 'isoc_selection') {
+      sendBotStatus(port, 'navigating_bsplink', 'Etape 1/4 - Page ISOC detectee, selection du premier pays disponible...');
+
+      // Get available countries from the select dropdown
+      if (pageInfo.selectElements?.[0]) {
+        const firstCountryOption = pageInfo.selectElements.find(s => s.optionCount > 1);
+        if (firstCountryOption?.firstOptions?.[1]) {
+          // Select any country to get past the ISOC page — we'll switch later per country
+          const selectResult = await sendToTab(bspTab.id, {
+            type: 'SELECT_ISOC_COUNTRY',
+            payload: { countryCode: firstCountryOption.firstOptions[1] }
+          }, 10000);
+
+          if (selectResult?.success) {
+            const submitResult = await sendToTab(bspTab.id, { type: 'SUBMIT_ISOC_FORM' }, 15000);
+            await wait(3000);
+
+            // Check if we need a second submit (user selection page)
+            await ensureContentScript(bspTab.id, 'bsplink');
+            const newPageInfo = await sendToTab(bspTab.id, { type: 'GET_PAGE_INFO' });
+            if (newPageInfo?.pageType === 'user_selection') {
+              await sendToTab(bspTab.id, { type: 'SUBMIT_ISOC_FORM' }, 15000);
+              await wait(3000);
+            }
+          }
+        }
+      }
+    }
+
+    sendBotStatus(port, 'logged_in', 'Etape 1/4 - BSP Link pret!');
+
     if (botModeState.isCancelled) return;
 
     // ================================================================
@@ -957,10 +992,10 @@ async function handleStartFullBot(port) {
     // ================================================================
     // STEP 3: BSP Link scraping — country by country
     // For each country group:
-    //   - Switch country in BSP Link
-    //   - Navigate to Settings > Ticketing Authority
+    //   - Switch to country via "Switch to another BSP Link account"
+    //   - Navigate to Master Data > Ticketing Authority History
     //   - Scrape agent table (all pages)
-    //   - Match Agent Codes → get Enable/Disable status
+    //   - Match Agent Codes → get Enable/Disable action
     // ================================================================
     await focusTab(bspTab.id);
     sendBotStatus(port, 'bsplink_starting', `Etape 3/4 - Demarrage du scraping BSP Link pour ${rows.length} agents...`);
@@ -975,8 +1010,8 @@ async function handleStartFullBot(port) {
     // ================================================================
     const totalFound = processingState.results.filter(r => r.lookupStatus === 'found').length;
     const totalNotFound = processingState.results.filter(r => r.lookupStatus === 'not_found').length;
-    const totalEnabled = processingState.results.filter(r => (r.agentStatus || '').toLowerCase().includes('enable')).length;
-    const totalDisabled = processingState.results.filter(r => (r.agentStatus || '').toLowerCase().includes('disable')).length;
+    const totalEnabled = processingState.results.filter(r => (r.action || '').toLowerCase().includes('enable')).length;
+    const totalDisabled = processingState.results.filter(r => (r.action || '').toLowerCase().includes('disable')).length;
 
     sendBotStatus(port, 'complete', `Etape 4/4 - Verification terminee! ${totalFound} trouves, ${totalEnabled} Enable, ${totalDisabled} Disable.`, {
       results: processingState.results,
@@ -1502,6 +1537,7 @@ async function runBSPLinkScraping(rows, iataColumn, countryColumn, bspTab, port)
         const result = {
           iataCode,
           country,
+          action: agent?.action || 'Not Found', // Enable or Disable — key data point
           agentStatus: agent?.agentStatus || 'Not Found',
           ticketingAuthority: agent?.ticketingAuthority || 'N/A',
           agentName: agent?.agentName || '',
