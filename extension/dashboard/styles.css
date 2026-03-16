@@ -1215,6 +1215,98 @@ body {
 }
 
 .btn-bot:active { transform: translateY(0); }
+.btn-xl {
+  padding: 18px 40px;
+  font-size: 18px;
+  border-radius: 14px;
+}
+
+/* === Bot Launch Card === */
+.bot-launch-card {
+  background: var(--bg-white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.bot-launch-hero {
+  text-align: center;
+  padding: 50px 40px;
+  background: linear-gradient(180deg, #f8f9ff 0%, var(--bg-white) 100%);
+}
+.bot-launch-icon {
+  margin: 0 auto 20px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: bot-float 3s ease-in-out infinite;
+}
+@keyframes bot-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.bot-launch-hero h3 {
+  font-size: 24px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.bot-launch-desc {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.bot-launch-hero .btn-bot {
+  display: inline-flex;
+  width: auto;
+  margin: 0 auto;
+}
+.bot-launch-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.bot-step-arrow { color: var(--accent); font-weight: bold; }
+
+/* === Full Bot Pipeline (same base as bot-pipeline but uses fb- prefixes) === */
+.fullbot-pipeline {
+  background: var(--bg-white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 24px;
+  margin-top: 20px;
+}
+.fullbot-pipeline .bot-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, var(--bg-dark), var(--bg-darker));
+  border-radius: var(--radius-md);
+  margin-bottom: 20px;
+}
+.fullbot-pipeline .bot-header h3 { color: #fff; font-size: 16px; }
+.fullbot-pipeline .bot-status-text { color: var(--accent); font-size: 13px; }
+.fullbot-pipeline .bot-avatar {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pulse-glow 2s infinite;
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74,85,162,0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(74,85,162,0); }
+}
 
 /* === Bot Pipeline === */
 .bot-pipeline {

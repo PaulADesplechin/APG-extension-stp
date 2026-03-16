@@ -14,12 +14,18 @@
         <img src="../icons/logo-apg.png" alt="APG Airlines" class="logo">
       </div>
       <div class="header-row">
-        <h1>BSP Link Checker</h1>
-        <span class="version">v1.1</span>
+        <h1>eBulletin Bot</h1>
+        <span class="version">v3.0</span>
       </div>
     </div>
     <nav class="sidebar-nav">
-      <a href="#" class="nav-item active" data-section="connexion">
+      <a href="#" class="nav-item active" data-section="botmode">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        Bot Mode
+      </a>
+      <div class="nav-divider"></div>
+      <span class="nav-section-label">Manuel</span>
+      <a href="#" class="nav-item" data-section="connexion">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
         Connexion BSP
       </a>
@@ -72,8 +78,130 @@
 
   <!-- Main Content -->
   <main class="main-content">
+    <!-- ===== BOT MODE SECTION ===== -->
+    <section id="section-botmode" class="section active">
+      <div class="section-header">
+        <h2>🤖 APG eBulletin Bot</h2>
+        <p>Traitement automatique complet — un clic, le bot fait tout.</p>
+      </div>
+
+      <!-- Bot Launch Card -->
+      <div class="bot-launch-card" id="botLaunchCard">
+        <div class="bot-launch-hero">
+          <div class="bot-launch-icon">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#4A55A2" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+              <line x1="9" y1="9" x2="9.01" y2="9"/>
+              <line x1="15" y1="9" x2="15.01" y2="9"/>
+            </svg>
+          </div>
+          <h3>Pret a lancer le bot?</h3>
+          <p class="bot-launch-desc">Le bot va ouvrir le portail IATA. Connectez-vous et validez la 2FA.<br>Ensuite, il fait tout automatiquement.</p>
+          <button class="btn btn-bot btn-xl" id="btnStartFullBot">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Lancer le Bot eBulletin
+          </button>
+          <div class="bot-launch-steps">
+            <span>1. Login IATA</span>
+            <span class="bot-step-arrow">→</span>
+            <span>2. Telechargement eBulletin</span>
+            <span class="bot-step-arrow">→</span>
+            <span>3. Analyse & BSP Link</span>
+            <span class="bot-step-arrow">→</span>
+            <span>4. Rapport Excel</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full Bot Pipeline (hidden until bot starts) -->
+      <div class="fullbot-pipeline hidden" id="fullBotPipeline">
+        <div class="bot-header">
+          <div class="bot-avatar">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          </div>
+          <div>
+            <h3>APG Bot — Pipeline automatique</h3>
+            <span class="bot-status-text" id="fullBotStatusText">Ouverture du portail IATA...</span>
+          </div>
+        </div>
+
+        <!-- Stages -->
+        <div class="bot-stages">
+          <div class="bot-stage" id="fb-stage-login" data-stage="login">
+            <div class="bot-stage-icon active">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Connexion IATA Portal</strong>
+              <span class="bot-stage-detail" id="fb-detail-login">Connectez-vous et validez la 2FA...</span>
+            </div>
+            <span class="bot-stage-badge" id="fb-badge-login"></span>
+          </div>
+          <div class="bot-stage" id="fb-stage-ebulletin" data-stage="ebulletin">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Telechargement eBulletin</strong>
+              <span class="bot-stage-detail" id="fb-detail-ebulletin">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="fb-badge-ebulletin"></span>
+          </div>
+          <div class="bot-stage" id="fb-stage-processing" data-stage="processing">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Nettoyage & Analyse</strong>
+              <span class="bot-stage-detail" id="fb-detail-processing">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="fb-badge-processing"></span>
+          </div>
+          <div class="bot-stage" id="fb-stage-bsplink" data-stage="bsplink">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Scraping BSP Link</strong>
+              <span class="bot-stage-detail" id="fb-detail-bsplink">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="fb-badge-bsplink"></span>
+          </div>
+          <div class="bot-stage" id="fb-stage-report" data-stage="report">
+            <div class="bot-stage-icon pending">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="bot-stage-info">
+              <strong>Rapport & Email</strong>
+              <span class="bot-stage-detail" id="fb-detail-report">En attente...</span>
+            </div>
+            <span class="bot-stage-badge" id="fb-badge-report"></span>
+          </div>
+        </div>
+
+        <!-- Terminal Log -->
+        <div class="bot-log" id="fullBotLog"></div>
+
+        <!-- Final Actions (hidden until complete) -->
+        <div class="bot-actions hidden" id="fullBotActions">
+          <button class="btn btn-primary" id="fbDownloadReport">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Telecharger le rapport complet
+          </button>
+          <button class="btn btn-secondary" id="fbViewEmail">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Voir l'email
+          </button>
+          <button class="btn btn-secondary" id="fbViewDetails">
+            Voir le detail
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- Connexion Section -->
-    <section id="section-connexion" class="section active">
+    <section id="section-connexion" class="section">
       <div class="section-header">
         <h2>Connexion BSP Link</h2>
         <p>Connectez-vous au portail IATA pour acceder a BSP Link</p>
@@ -674,5 +802,6 @@
   <script src="../utils/email-template.js"></script>
   <script src="../utils/suivi-handler.js"></script>
   <script src="app.js"></script>
+  <script src="fullbot.js"></script>
 </body>
 </html>

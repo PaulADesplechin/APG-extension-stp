@@ -5,111 +5,199 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      width: 320px;
+      width: 340px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f6fa;
-      color: #2D2F6D;
+      background: #0d0e1a;
+      color: #e0e0e8;
     }
     .header {
       background: linear-gradient(135deg, #2D2F6D 0%, #1E1F4B 100%);
-      padding: 16px 20px;
+      padding: 18px 20px 14px;
       display: flex;
       align-items: center;
       gap: 12px;
+      border-bottom: 2px solid #E8871E;
     }
     .header .logo-box { background: white; border-radius: 6px; padding: 4px 8px; display: flex; }
     .header .logo-box img { height: 22px; width: auto; }
     .header h1 { color: #ffffff; font-size: 14px; font-weight: 600; }
-    .header p { color: #a0a0b0; font-size: 11px; margin-top: 2px; }
-    .header .tagline { color: #E8871E; font-size: 10px; margin-top: 1px; }
+    .header .version { color: #E8871E; font-size: 10px; font-weight: 600; }
     .content { padding: 16px 20px; }
-    .status-badge {
-      display: inline-flex;
+
+    /* Bot button */
+    .btn-bot {
+      display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 500;
-      margin-bottom: 16px;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, #4A55A2, #2D2F6D);
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
     }
-    .status-badge.idle { background: #e8f5e9; color: #2e7d32; }
-    .status-badge.processing { background: #ECEEF8; color: #4A55A2; }
-    .status-dot {
-      width: 8px; height: 8px; border-radius: 50%;
+    .btn-bot::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 200%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+      animation: shimmer 2.5s infinite;
     }
-    .status-badge.idle .status-dot { background: #4caf50; }
-    .status-badge.processing .status-dot { background: #4A55A2; animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .btn {
+    @keyframes shimmer { 0% { left: -100%; } 100% { left: 100%; } }
+    .btn-bot:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(74,85,162,0.5); }
+    .btn-bot:active { transform: translateY(0); }
+    .btn-bot .bot-icon { font-size: 20px; }
+    .btn-bot.running { background: linear-gradient(135deg, #E8871E, #c06a10); pointer-events: none; }
+
+    .separator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 14px 0;
+      font-size: 10px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .separator::before, .separator::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #2a2b3d;
+    }
+
+    .btn-secondary {
       display: block;
       width: 100%;
-      padding: 12px;
-      border: none;
+      padding: 10px;
+      border: 1px solid #2a2b3d;
       border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
       text-align: center;
       text-decoration: none;
+      color: #a0a0b0;
+      background: transparent;
       transition: all 0.2s;
     }
-    .btn-primary {
-      background: #4A55A2;
-      color: #ffffff;
+    .btn-secondary:hover { border-color: #4A55A2; color: #fff; background: rgba(74,85,162,0.1); }
+
+    /* Status */
+    .bot-status {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #141526;
+      border: 1px solid #2a2b3d;
+      display: none;
     }
-    .btn-primary:hover { background: #3B4590; transform: translateY(-1px); }
+    .bot-status.visible { display: block; }
+    .bot-status .stage {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: #8888aa;
+      padding: 3px 0;
+    }
+    .bot-status .stage.active { color: #E8871E; font-weight: 600; }
+    .bot-status .stage.done { color: #4caf50; }
+    .bot-status .stage-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #333;
+      flex-shrink: 0;
+    }
+    .bot-status .stage.active .stage-dot { background: #E8871E; animation: pulse 1.2s infinite; }
+    .bot-status .stage.done .stage-dot { background: #4caf50; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    /* Stats row */
     .stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      display: flex;
       gap: 8px;
       margin-top: 12px;
     }
-    .stat-card {
-      background: white;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #e0e0e0;
-    }
-    .stat-card .value { font-size: 18px; font-weight: 700; color: #2D2F6D; }
-    .stat-card .label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
-    .footer {
-      padding: 12px 20px;
-      border-top: 1px solid #e0e0e0;
+    .stat {
+      flex: 1;
       text-align: center;
+      padding: 8px;
+      border-radius: 6px;
+      background: #141526;
+      border: 1px solid #1e1f32;
     }
-    .footer a { color: #666; font-size: 11px; text-decoration: none; }
-    .footer a:hover { color: #4A55A2; }
+    .stat .val { font-size: 16px; font-weight: 700; color: #4A55A2; }
+    .stat .lbl { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .footer {
+      padding: 10px 20px;
+      border-top: 1px solid #1e1f32;
+      text-align: center;
+      font-size: 10px;
+      color: #444;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="logo-box"><img src="../icons/logo-apg.png" alt="APG"></div>
     <div>
-      <h1>BSP Link Checker</h1>
-      <p>Risk Management</p>
+      <h1>eBulletin Bot</h1>
+      <span class="version">v3.0</span>
     </div>
   </div>
+
   <div class="content">
-    <div class="status-badge idle" id="statusBadge">
-      <span class="status-dot"></span>
-      <span id="statusText">En attente</span>
+    <button class="btn-bot" id="btnLaunchBot">
+      <span class="bot-icon">🤖</span>
+      Lancer le Bot eBulletin
+    </button>
+
+    <div class="bot-status" id="botStatus">
+      <div class="stage" id="stage-login" data-stage="login">
+        <span class="stage-dot"></span> Connexion IATA Portal
+      </div>
+      <div class="stage" id="stage-ebulletin" data-stage="ebulletin">
+        <span class="stage-dot"></span> Telechargement eBulletin
+      </div>
+      <div class="stage" id="stage-processing" data-stage="processing">
+        <span class="stage-dot"></span> Traitement & Analyse
+      </div>
+      <div class="stage" id="stage-bsplink" data-stage="bsplink">
+        <span class="stage-dot"></span> Scraping BSP Link
+      </div>
+      <div class="stage" id="stage-report" data-stage="report">
+        <span class="stage-dot"></span> Rapport final
+      </div>
     </div>
-    <a href="#" class="btn btn-primary" id="openDashboard">Ouvrir le Dashboard</a>
+
+    <div class="separator">ou</div>
+
+    <a href="#" class="btn-secondary" id="openDashboard">📊 Ouvrir le Dashboard complet</a>
+
     <div class="stats">
-      <div class="stat-card">
-        <div class="value" id="totalProcessed">0</div>
-        <div class="label">Traitements</div>
+      <div class="stat">
+        <div class="val" id="totalProcessed">0</div>
+        <div class="lbl">Traitements</div>
       </div>
-      <div class="stat-card">
-        <div class="value" id="lastDate">-</div>
-        <div class="label">Dernier</div>
+      <div class="stat">
+        <div class="val" id="lastDate">-</div>
+        <div class="lbl">Dernier</div>
       </div>
     </div>
   </div>
-  <div class="footer">
-    <a href="#">APG Airlines - Risk Management</a>
-  </div>
+
+  <div class="footer">APG Airlines — Risk Management Bot</div>
+
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "APG BSP Link - Agent Status Checker",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Automatise la vérification du statut Ticketing Authority sur BSP Link pour le traitement eBulletin APG Airlines",
   "permissions": [
     "activeTab",
@@ -26,7 +26,7 @@
       "matches": [
         "https://portal.iata.org/*"
       ],
-      "js": ["content-scripts/iata-login.js"],
+      "js": ["content-scripts/iata-login.js", "content-scripts/iata-ebulletin.js"],
       "run_at": "document_idle"
     },
     {
