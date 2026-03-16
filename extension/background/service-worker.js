@@ -787,42 +787,52 @@ async function handleStartFullBot(port) {
 
   try {
     // ================================================================
-    // STEP 1: Open or find BSP Link tab + wait for login
+    // STEP 1: Portal login → navigate to BSP Link via Favorite Services
+    // Path: portal.iata.org → login + 2FA → Favorite Services → BSP Link
     // ================================================================
-    sendBotStatus(port, 'opening_bsplink', 'Etape 1/4 - Ouverture de BSP Link...');
+    sendBotStatus(port, 'opening_portal', 'Etape 1/4 - Ouverture du portail IATA...');
 
-    let bspTab = await findBSPLinkTab();
-    if (!bspTab) {
-      const newTab = await chrome.tabs.create({
-        url: 'https://www.bsplink.iata.org',
+    // 1a. Find or open portal tab
+    let portalTab = await findIATAPortalTab();
+    if (!portalTab) {
+      portalTab = await chrome.tabs.create({
+        url: 'https://portal.iata.org/s/login/?language=en_US',
         active: true
       });
-      await waitForTabLoad(newTab.id);
-      await wait(5000);
-      bspTab = await findBSPLinkTab();
-      if (!bspTab) bspTab = newTab;
+      await waitForTabLoad(portalTab.id);
+      await wait(3000);
     }
-
-    botModeState.bspTabId = bspTab.id;
-    await focusTab(bspTab.id);
+    botModeState.iataTabId = portalTab.id;
+    await focusTab(portalTab.id);
 
     if (botModeState.isCancelled) return;
 
-    // Check BSP Link login
-    await ensureContentScript(bspTab.id, 'bsplink');
-    const bspLogin = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+    // 1b. Check login / wait for manual login + 2FA
+    sendBotStatus(port, 'checking_login', 'Etape 1/4 - Verification de la connexion au portail IATA...');
+    await ensureContentScript(portalTab.id, 'portal');
 
-    if (!bspLogin?.isLoggedIn) {
-      sendBotStatus(port, 'waiting_login', 'Etape 1/4 - Connectez-vous a BSP Link (bsp@apg-ga.com) + 2FA. L\'assistant detectera automatiquement la connexion.', {
-        instruction: 'Connectez-vous a BSP Link avec vos identifiants et validez la 2FA.',
+    const alreadyLoggedIn = await sendToTab(portalTab.id, { type: 'CHECK_LOGGED_IN' });
+
+    if (!alreadyLoggedIn?.isLoggedIn) {
+      const tab = await chrome.tabs.get(portalTab.id);
+      if (!tab.url || !tab.url.includes('portal.iata.org')) {
+        await chrome.tabs.update(portalTab.id, {
+          url: 'https://portal.iata.org/s/login/?language=en_US'
+        });
+        await waitForTabLoad(portalTab.id);
+        await wait(3000);
+      }
+
+      sendBotStatus(port, 'waiting_login', 'Etape 1/4 - Connectez-vous au portail IATA (c.bertereau@apg-airlines.com) + 2FA.', {
+        instruction: 'Connectez-vous au portail IATA et validez la 2FA. L\'assistant detectera automatiquement la connexion.',
         requiresUserAction: true
       });
 
-      // Poll for BSP Link login (max 5 minutes for manual login + 2FA)
-      const loginSuccess = await pollForBSPLinkLogin(bspTab.id, port, 150);
+      // Poll for login (max 5 minutes)
+      const loginSuccess = await pollForLogin(portalTab.id, port);
       if (!loginSuccess) {
         if (!botModeState.isCancelled) {
-          sendBotStatus(port, 'error', 'Timeout — connexion a BSP Link non detectee apres 5 minutes. Relancez apres vous etre connecte.');
+          sendBotStatus(port, 'error', 'Timeout — connexion non detectee apres 5 minutes.');
         }
         botModeState.isActive = false;
         chrome.alarms.clear('keepAlive');
@@ -830,7 +840,82 @@ async function handleStartFullBot(port) {
       }
     }
 
-    sendBotStatus(port, 'logged_in', 'Etape 1/4 - Connexion a BSP Link confirmee.');
+    sendBotStatus(port, 'logged_in', 'Etape 1/4 - Connexion au portail IATA confirmee.');
+
+    if (botModeState.isCancelled) return;
+
+    // 1c. Navigate to BSP Link via Favorite Services
+    sendBotStatus(port, 'navigating_bsplink', 'Etape 1/4 - Navigation vers BSP Link depuis le portail...');
+    await focusTab(portalTab.id);
+    await wait(2000);
+
+    // Check if BSP Link is already open in another tab
+    let bspTab = await findBSPLinkTab();
+
+    if (!bspTab) {
+      // Try clicking "BSP Link" in Favorite Services on the portal
+      await ensureContentScript(portalTab.id, 'portal');
+      const navResult = await sendToTab(portalTab.id, {
+        type: 'NAVIGATE_TO_EBULLETIN' // Reuse tile click — we'll search for "BSP Link" text
+      }, 30000);
+
+      // Also try clicking "BSP Link" tile specifically
+      const bspNavResult = await sendToTab(portalTab.id, {
+        type: 'CLICK_PORTAL_TILE',
+        payload: {
+          tileTexts: ['BSP Link', 'BSPlink', 'BSP link', 'BSPLINK', 'Bsp Link'],
+          fallbackUrls: ['https://www.bsplink.iata.org', 'https://bsplink.iata.org']
+        }
+      }, 20000);
+
+      // Wait for BSP Link tab to appear
+      await wait(5000);
+      bspTab = await findBSPLinkTab();
+
+      // If still not found, monitor tabs
+      if (!bspTab) {
+        sendBotStatus(port, 'navigating_bsplink', 'Etape 1/4 - Recherche de l\'onglet BSP Link...');
+        const foundTab = await monitorTabsForUrl(['bsplink'], 30000);
+        if (foundTab) bspTab = foundTab;
+      }
+
+      // Last resort: open BSP Link directly (user is logged in via portal SSO)
+      if (!bspTab) {
+        sendBotStatus(port, 'navigating_bsplink', 'Etape 1/4 - Ouverture directe de BSP Link...');
+        const newTab = await chrome.tabs.create({
+          url: 'https://www.bsplink.iata.org',
+          active: true
+        });
+        await waitForTabLoad(newTab.id);
+        await wait(5000);
+        bspTab = newTab;
+      }
+    }
+
+    botModeState.bspTabId = bspTab.id;
+    await focusTab(bspTab.id);
+
+    // Wait for BSP Link to be logged in (SSO from portal)
+    await ensureContentScript(bspTab.id, 'bsplink');
+    const bspLogin = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+
+    if (!bspLogin?.isLoggedIn) {
+      sendBotStatus(port, 'waiting_login', 'Etape 1/4 - Attente de connexion BSP Link (SSO depuis le portail)...', {
+        instruction: 'La connexion SSO devrait etre automatique. Si ca bloque, connectez-vous manuellement a BSP Link.'
+      });
+
+      const bspLoginSuccess = await pollForBSPLinkLogin(bspTab.id, port, 90); // 3 min
+      if (!bspLoginSuccess) {
+        if (!botModeState.isCancelled) {
+          sendBotStatus(port, 'error', 'Connexion BSP Link echouee. Connectez-vous manuellement et relancez.');
+        }
+        botModeState.isActive = false;
+        chrome.alarms.clear('keepAlive');
+        return;
+      }
+    }
+
+    sendBotStatus(port, 'logged_in', 'Etape 1/4 - Connecte a BSP Link!');
     await focusTab(bspTab.id);
 
     if (botModeState.isCancelled) return;

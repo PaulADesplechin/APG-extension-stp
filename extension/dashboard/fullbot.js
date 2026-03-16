@@ -71,8 +71,8 @@
     document.getElementById('fullBotActions').classList.add('hidden');
 
     fbLog('APG Assistant demarre', 'stage');
-    fbSetStatus('Connexion a BSP Link...');
-    fbSetStage('connexion', 'active', 'Ouverture de BSP Link...');
+    fbSetStatus('Connexion au portail IATA...');
+    fbSetStage('connexion', 'active', 'Ouverture du portail IATA...');
 
     // Check if we're in a Chrome extension context
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
@@ -121,22 +121,29 @@
     const { stage, message, data } = payload;
 
     switch (stage) {
-      // ---- STEP 1: BSP Link Connection ----
-      case 'opening_bsplink':
-        fbSetStatus('Ouverture de BSP Link...');
-        fbSetStage('connexion', 'active', 'Ouverture de BSP Link...');
-        fbLog(message || 'Ouverture de BSP Link', 'info');
+      // ---- STEP 1: Portal login → BSP Link ----
+      case 'opening_portal':
+      case 'checking_login':
+        fbSetStatus('Connexion au portail IATA...');
+        fbSetStage('connexion', 'active', 'Ouverture du portail IATA...');
+        fbLog(message || 'Ouverture du portail IATA', 'info');
         break;
 
       case 'waiting_login':
         fbSetStatus('En attente de votre connexion...');
-        fbSetStage('connexion', 'active', 'Connectez-vous a BSP Link + 2FA...');
-        fbLog(message || 'Connectez-vous a BSP Link (bsp@apg-ga.com) et validez la 2FA', 'warning');
+        fbSetStage('connexion', 'active', message || 'Connectez-vous + 2FA...');
+        fbLog(message || 'Connectez-vous au portail IATA et validez la 2FA', 'warning');
+        break;
+
+      case 'navigating_bsplink':
+        fbSetStatus('Navigation vers BSP Link...');
+        fbSetStage('connexion', 'active', message || 'Navigation vers BSP Link...');
+        fbLog(message || 'Navigation vers BSP Link depuis le portail', 'info');
         break;
 
       case 'logged_in':
-        fbSetStage('connexion', 'done', 'Connecte a BSP Link!', { text: 'OK', type: 'success' });
-        fbLog('Connexion BSP Link confirmee!', 'success');
+        fbSetStage('connexion', 'done', 'Connecte!', { text: 'OK', type: 'success' });
+        fbLog(message || 'Connexion confirmee!', 'success');
         break;
 
       // ---- STEP 2: Excel Upload ----

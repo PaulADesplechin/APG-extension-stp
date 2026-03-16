@@ -21,7 +21,7 @@
     'NAVIGATE_TO_CODE_SEARCH', 'SEARCH_IATA_CODE',
     'NAVIGATE_TO_SMART', 'SEARCH_SMART_AGENT',
     'NAVIGATE_TO_SMART_LITE', 'SCRAPE_SMART_LITE',
-    'SCAN_PORTAL_SERVICES', 'PING'
+    'SCAN_PORTAL_SERVICES', 'CLICK_PORTAL_TILE', 'PING'
   ]);
 
   // ---- Message Handler ----
@@ -72,9 +72,12 @@
       case 'SCRAPE_SMART_LITE':
         return await scrapeSmartLite(message.payload);
 
-      // ---- Portal Scan ----
+      // ---- Portal Scan & Navigation ----
       case 'SCAN_PORTAL_SERVICES':
         return scanPortalServices();
+
+      case 'CLICK_PORTAL_TILE':
+        return await clickPortalTile(message.payload);
 
       // ---- Utility ----
       case 'PING':
@@ -486,6 +489,29 @@
   //  Scan the portal page for all available service links/tiles
   //  Returns: { services: [...], url, title }
   // ============================================================
+  /**
+   * Click a specific tile/link on the portal page (e.g., "BSP Link" in Favorite Services).
+   * Waits for page to load first, then searches for the text.
+   */
+  async function clickPortalTile(payload) {
+    const { tileTexts = [], fallbackUrls = [] } = payload || {};
+    log('Clicking portal tile:', tileTexts.join(', '));
+
+    // Wait for page content to load
+    await waitForPortalTiles(15000);
+
+    // Use the existing clickServiceTile function
+    const result = await clickServiceTile(tileTexts, fallbackUrls.map(u => {
+      // Convert absolute URLs to relative paths for the fallback
+      try { return new URL(u).pathname; } catch { return u; }
+    }));
+
+    return {
+      ...result,
+      currentUrl: window.location.href
+    };
+  }
+
   async function scanPortalServices() {
     // Wait for page to finish loading
     await waitForPortalTiles(15000);

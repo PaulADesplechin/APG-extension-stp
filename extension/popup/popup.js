@@ -119,13 +119,13 @@ btn.addEventListener('click', async () => {
     currentJob: { state: 'BOT_RUNNING', stage: 'connexion', lastUpdate: Date.now() }
   });
 
-  // Check if BSP Link is already open
-  const bspTabs = await chrome.tabs.query({ url: '*://www.bsplink.iata.org/*' });
-  if (bspTabs.length > 0) {
-    await chrome.tabs.update(bspTabs[0].id, { active: true });
+  // Check if portal.iata.org is already open
+  const portalTabs = await chrome.tabs.query({ url: '*://portal.iata.org/*' });
+  if (portalTabs.length > 0) {
+    await chrome.tabs.update(portalTabs[0].id, { active: true });
   } else {
     await chrome.tabs.create({
-      url: 'https://www.bsplink.iata.org/',
+      url: 'https://portal.iata.org/s/login/?language=en_US',
       active: true
     });
   }
