@@ -147,51 +147,29 @@ async function loadState() {
     const liveState = await chrome.runtime.sendMessage({ type: 'GET_BOT_STATE' });
 
     if (liveState?.isActive) {
+      // Bot is REALLY running right now
       const popupStage = mapBotStageToPopup(liveState.stage);
       setUIState('running', popupStage);
     } else {
-      // Check storage for last known state
-      const data = await chrome.storage.local.get(['currentJob', 'processingHistory']);
+      // Service worker says bot is NOT running → trust it, clean up storage
+      await chrome.storage.local.set({
+        currentJob: { state: 'IDLE', stage: null, lastUpdate: Date.now() }
+      });
+      setUIState('idle');
+    }
 
-      const job = data.currentJob;
-      if (job) {
-        // If state was "running" but last update was >5 min ago, it's stale → reset
-        if (job.state === 'BOT_RUNNING') {
-          const staleTimeout = 5 * 60 * 1000; // 5 minutes
-          if (job.lastUpdate && Date.now() - job.lastUpdate > staleTimeout) {
-            // Stale — reset
-            await chrome.storage.local.set({
-              currentJob: { state: 'IDLE', stage: null, lastUpdate: Date.now() }
-            });
-            setUIState('idle');
-          } else {
-            const popupStage = mapBotStageToPopup(job.stage);
-            setUIState('running', popupStage);
-          }
-        } else if (job.state === 'DONE') {
-          setUIState('done');
-        } else if (job.state === 'ERROR') {
-          const popupStage = mapBotStageToPopup(job.stage);
-          setUIState('error', popupStage);
-        } else {
-          setUIState('idle');
-        }
-      } else {
-        setUIState('idle');
-      }
-
-      // Load stats
-      const history = data.processingHistory || [];
-      document.getElementById('totalProcessed').textContent = history.length;
-      if (history.length > 0) {
-        const last = history[history.length - 1];
-        const date = new Date(last.date);
-        document.getElementById('lastDate').textContent =
-          date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-      }
+    // Load stats
+    const data = await chrome.storage.local.get(['processingHistory']);
+    const history = data.processingHistory || [];
+    document.getElementById('totalProcessed').textContent = history.length;
+    if (history.length > 0) {
+      const last = history[history.length - 1];
+      const date = new Date(last.date);
+      document.getElementById('lastDate').textContent =
+        date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
     }
   } catch (e) {
-    // If service worker is not responding, check storage
+    // If service worker is not responding, show idle
     setUIState('idle');
   }
 }
