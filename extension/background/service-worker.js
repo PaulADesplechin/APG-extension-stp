@@ -825,8 +825,9 @@ async function handleStartFullBot(port) {
     let ebulletinTabId = null;
 
     // ---- Strategy A: Content script tile click ----
-    sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Recherche du service E-Bulletin sur le portail...');
-    const navResult = await sendToTab(iataTab.id, { type: 'NAVIGATE_TO_EBULLETIN' }, 20000);
+    sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Recherche du service E-Bulletin sur le portail (attente des tuiles)...');
+    // Give the content script 30s — it now waits for Salesforce tiles to load first
+    const navResult = await sendToTab(iataTab.id, { type: 'NAVIGATE_TO_EBULLETIN' }, 45000);
 
     if (navResult?.success) {
       await wait(5000);
@@ -834,9 +835,18 @@ async function handleStartFullBot(port) {
       if (botModeState.ebulletinTabId) {
         ebulletinTabId = botModeState.ebulletinTabId;
       } else {
-        // Check if portal tab navigated
+        // Check if portal tab navigated to eBulletin
         const currentTab = await chrome.tabs.get(iataTab.id);
-        ebulletinTabId = iataTab.id;
+        // VERIFY we're actually on an eBulletin page, not still on portal home
+        await ensureContentScript(iataTab.id, 'portal');
+        const pageCheck = await sendToTab(iataTab.id, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
+        if (pageCheck?.isEbulletinPage) {
+          ebulletinTabId = iataTab.id;
+          sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin confirmee: ${currentTab.url}`);
+        } else {
+          console.warn('[APG Bot] Tile click succeeded but page is not eBulletin:', currentTab.url);
+          // Don't set ebulletinTabId — fall through to next strategy
+        }
       }
     }
 
@@ -860,8 +870,15 @@ async function handleStartFullBot(port) {
           // Navigate to the discovered URL
           await chrome.tabs.update(iataTab.id, { url: ebulletinService.href, active: true });
           await waitForTabLoad(iataTab.id);
-          await wait(3000);
-          ebulletinTabId = iataTab.id;
+          await wait(4000);
+          // Verify it's actually the eBulletin page
+          await ensureContentScript(iataTab.id, 'portal');
+          const verifyB = await sendToTab(iataTab.id, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
+          if (verifyB?.isEbulletinPage) {
+            ebulletinTabId = iataTab.id;
+          } else {
+            console.warn('[APG Bot] Strategy B: URL loaded but not eBulletin page');
+          }
         }
       }
     }
@@ -903,8 +920,9 @@ async function handleStartFullBot(port) {
           const tab = await chrome.tabs.get(iataTab.id);
           const tabUrl = (tab.url || '').toLowerCase();
 
-          // If redirected to login, skip this URL
-          if (tabUrl.includes('login') || tabUrl.includes('error') || tabUrl.includes('404')) {
+          // If redirected to login or portal home, skip this URL
+          if (tabUrl.includes('login') || tabUrl.includes('error') || tabUrl.includes('404') ||
+              tabUrl.match(/portal\.iata\.org\/s\/?(\?.*)?$/) || tabUrl.endsWith('/s/')) {
             continue;
           }
 
@@ -913,7 +931,7 @@ async function handleStartFullBot(port) {
           const check = await sendToTab(iataTab.id, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
 
           if (check?.isEbulletinPage || check?.hasWeeklyTab || check?.hasGenerateButton ||
-              check?.hasDownloadLinks || tabUrl.includes('bulletin') || tabUrl.includes('airs')) {
+              check?.hasDownloadLinks || tabUrl.includes('ebulletin') || tabUrl.includes('airs.iata')) {
             ebulletinTabId = iataTab.id;
             sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin trouvee: ${tab.url}`);
             break;
@@ -964,6 +982,47 @@ async function handleStartFullBot(port) {
     await waitForTabLoad(ebulletinTabId);
     await wait(3000);
     await ensureContentScript(ebulletinTabId, 'portal');
+
+    // FINAL VERIFICATION: Make sure we're really on the eBulletin page before proceeding
+    const finalCheck = await sendToTab(ebulletinTabId, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
+    if (!finalCheck?.isEbulletinPage && !finalCheck?.hasWeeklyTab && !finalCheck?.hasDownloadLinks) {
+      // Log what we found for debugging
+      const tab = await chrome.tabs.get(ebulletinTabId);
+      console.warn('[APG Bot] Final eBulletin verification FAILED. URL:', tab.url, 'Check result:', JSON.stringify(finalCheck));
+
+      // Go to Strategy E: ask user to navigate manually
+      sendBotStatus(port, 'waiting_manual_nav', 'Etape 2/7 - La page detectee n\'est pas la page eBulletin. Cliquez sur le service "AIRS/CAIRS Online Bulletin" sur le portail IATA.', {
+        instruction: 'Naviguez manuellement vers la page E-Bulletin puis le bot reprendra automatiquement.',
+        requiresUserAction: true,
+        currentUrl: tab.url
+      });
+
+      // Focus portal tab
+      await focusTab(iataTab.id);
+      await chrome.tabs.update(iataTab.id, { url: 'https://portal.iata.org/s/' });
+      await waitForTabLoad(iataTab.id);
+
+      // Monitor for eBulletin URL
+      const manualTab = await monitorTabsForUrl(
+        ['ebulletin', 'airs.iata', 'cairs.iata'],
+        180000 // 3 minutes
+      );
+
+      if (manualTab) {
+        ebulletinTabId = manualTab.id;
+        botModeState.ebulletinTabId = manualTab.id;
+        await focusTab(ebulletinTabId);
+        await waitForTabLoad(ebulletinTabId);
+        await wait(3000);
+        await ensureContentScript(ebulletinTabId, 'portal');
+        sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin detectee: ${manualTab.url}`);
+      } else {
+        sendBotStatus(port, 'error', 'Impossible de trouver la page eBulletin. Verifiez vos droits d\'acces au service AIRS/CAIRS Online Bulletin.');
+        botModeState.isActive = false;
+        chrome.alarms.clear('keepAlive');
+        return;
+      }
+    }
 
     if (botModeState.isCancelled) return;
 

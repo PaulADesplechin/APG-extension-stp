@@ -461,7 +461,10 @@
   //  Scan the portal page for all available service links/tiles
   //  Returns: { services: [...], url, title }
   // ============================================================
-  function scanPortalServices() {
+  async function scanPortalServices() {
+    // Wait for tiles to load before scanning
+    await waitForPortalTiles(15000);
+
     const services = [];
     const seen = new Set();
 
@@ -517,6 +520,11 @@
   async function navigateToEbulletin() {
     log('Navigating to eBulletin...');
 
+    // Wait for Salesforce Lightning page to fully render
+    // The "Favorite Services" section loads asynchronously (visible spinner on portal)
+    log('Waiting for portal tiles to load...');
+    await waitForPortalTiles(20000);
+
     const result = await clickServiceTile(
       [
         'AIRS / CAIRS Online Bulletin',
@@ -545,6 +553,66 @@
       ...result,
       currentUrl: window.location.href
     };
+  }
+
+  /**
+   * Wait for the Salesforce Lightning portal tiles to finish loading.
+   * The "Favorite Services" section loads async and shows a spinner.
+   */
+  async function waitForPortalTiles(maxMs = 20000) {
+    const pollInterval = 500;
+    let elapsed = 0;
+
+    while (elapsed < maxMs) {
+      // Check if spinner is still visible
+      const spinners = document.querySelectorAll(
+        '.slds-spinner, [class*="spinner"], [class*="loading"], ' +
+        '[role="progressbar"], [class*="slds-spinner"]'
+      );
+      // Also check Shadow DOM for spinners
+      const shadowSpinners = deepQuerySelectorAll(
+        '.slds-spinner, [class*="spinner"], [role="progressbar"]'
+      );
+
+      let hasActiveSpinner = false;
+      for (const spinner of [...spinners, ...shadowSpinners]) {
+        // Check if spinner is visible (not hidden)
+        const rect = spinner.getBoundingClientRect();
+        const style = window.getComputedStyle(spinner);
+        if (rect.width > 0 && rect.height > 0 &&
+            style.display !== 'none' && style.visibility !== 'hidden') {
+          hasActiveSpinner = true;
+          break;
+        }
+      }
+
+      // Check if "Favorite Services" or "See All" link is loaded (tiles ready)
+      const hasTiles = !!(
+        findElementByText('a, button, span, div', ['See All']) ||
+        document.querySelector('[class*="favoriteService"], [class*="service-tile"], [class*="slds-card"]') ||
+        deepQuerySelectorAll('[class*="favoriteService"], [class*="service-tile"], article').length > 0
+      );
+
+      // Check if we have clickable service links
+      const serviceLinks = deepQuerySelectorAll('a[href]');
+      const hasServiceContent = serviceLinks.length > 10; // Portal with loaded tiles has many links
+
+      if (!hasActiveSpinner && (hasTiles || hasServiceContent)) {
+        log('Portal tiles loaded. Links found:', serviceLinks.length);
+        await wait(1000); // Extra settle time after tiles appear
+        return true;
+      }
+
+      if (elapsed > 0 && elapsed % 5000 === 0) {
+        log('Still waiting for portal tiles to load...', elapsed / 1000, 's');
+      }
+
+      await wait(pollInterval);
+      elapsed += pollInterval;
+    }
+
+    log('Portal tiles wait timeout after', maxMs / 1000, 's — proceeding anyway');
+    return false;
   }
 
   // ============================================================
@@ -620,15 +688,34 @@
 
     const hasDownloadLinks = downloadLinks.length > 0;
 
-    const isEbulletinPage = hasHeader || (hasWeeklyTab && hasDailyTab) ||
-      (hasGenerateButton && (hasWeeklyTab || hasFilterOptions)) ||
+    // Detect if this is the portal homepage (NOT an eBulletin page)
+    const isPortalHome = url.includes('portal.iata.org/s/') &&
+      (url.endsWith('/s/') || url.endsWith('/s') || url.includes('/s/login') ||
+       url.match(/portal\.iata\.org\/s\/?(\?.*)?$/));
+    const isFavoriteServicesPage = !!(
+      findElementByText('h2, h3, span, div', ['Favorite Services', 'My Services', 'My Notifications']) &&
+      !hasHeader && !hasWeeklyTab
+    );
+
+    // Strong indicators (definitive)
+    const strongMatch = hasHeader || (hasWeeklyTab && hasDailyTab) ||
+      (hasGenerateButton && hasWeeklyTab) ||
       hasGeneratedReports ||
       hasDownloadLinks ||
-      (hasWeeklyTab && hasGenerateButton) ||
-      url.includes('ebulletin') || url.includes('bulletin') ||
-      url.includes('airs.iata') || url.includes('cairs.iata') ||
-      (pageTextLower.includes('weekly') && pageTextLower.includes('bulletin')) ||
-      (pageTextLower.includes('generate') && pageTextLower.includes('report') && pageTextLower.includes('bulletin'));
+      (hasWeeklyTab && hasFilterOptions);
+
+    // URL-based indicators (only if NOT on portal home)
+    const urlMatch = !isPortalHome && (
+      url.includes('ebulletin') || url.includes('airs.iata') || url.includes('cairs.iata')
+    );
+
+    // Text-based indicators (require multiple signals + NOT portal home)
+    const textMatch = !isPortalHome && !isFavoriteServicesPage && (
+      (pageTextLower.includes('weekly') && pageTextLower.includes('bulletin') && pageTextLower.includes('generate')) ||
+      (pageTextLower.includes('generate') && pageTextLower.includes('report') && pageTextLower.includes('bulletin'))
+    );
+
+    const isEbulletinPage = strongMatch || urlMatch || textMatch;
 
     return {
       isEbulletinPage,
