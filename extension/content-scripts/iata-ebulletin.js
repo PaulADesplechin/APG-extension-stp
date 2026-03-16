@@ -14,8 +14,23 @@
 
   const LOG_PREFIX = '[APG eBulletin]';
 
+  // ---- Known message types this script handles ----
+  const EBULLETIN_MESSAGE_TYPES = new Set([
+    'NAVIGATE_TO_EBULLETIN', 'CHECK_EBULLETIN_PAGE', 'CLICK_WEEKLY_TAB',
+    'GENERATE_REPORT', 'DOWNLOAD_LATEST_EBULLETIN', 'GET_EBULLETIN_LIST',
+    'NAVIGATE_TO_CODE_SEARCH', 'SEARCH_IATA_CODE',
+    'NAVIGATE_TO_SMART', 'SEARCH_SMART_AGENT',
+    'NAVIGATE_TO_SMART_LITE', 'SCRAPE_SMART_LITE',
+    'SCAN_PORTAL_SERVICES', 'PING'
+  ]);
+
   // ---- Message Handler ----
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Only handle messages this script knows about
+    if (!EBULLETIN_MESSAGE_TYPES.has(message.type)) {
+      return false; // Let other content scripts handle it
+    }
+
     handleMessage(message).then(sendResponse).catch(err => {
       console.error(LOG_PREFIX, 'Error handling message:', err);
       sendResponse({ error: err.message });

@@ -303,7 +303,19 @@ const COLUMN_MAP = {
 };
 
 // ---- Message Handler ----
+// Known message types this script handles
+const BSP_MESSAGE_TYPES = new Set([
+  'CHECK_LOGIN', 'NAVIGATE_TO_TICKETING_AUTHORITY', 'SWITCH_COUNTRY',
+  'SCRAPE_ALL_PAGES', 'SCRAPE_CURRENT_PAGE', 'GET_CURRENT_COUNTRY',
+  'GET_PAGE_INFO', 'PING', 'DEBUG_DOM'
+]);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only handle messages this script knows about
+  if (!BSP_MESSAGE_TYPES.has(message.type)) {
+    return false; // Let other content scripts handle it
+  }
+
   handleMessage(message).then(sendResponse).catch(err => {
     console.error('[APG] Error handling message:', err);
     sendResponse({ error: err.message });
@@ -328,11 +340,11 @@ async function handleMessage(message) {
     case 'GET_PAGE_INFO':
       return getPageInfo();
     case 'PING':
-      return { status: 'alive', url: window.location.href };
+      return { status: 'alive', url: window.location.href, script: 'bsplink-scraper' };
     case 'DEBUG_DOM':
       return debugDomStructure();
     default:
-      return { error: 'Unknown message type' };
+      return false;
   }
 }
 

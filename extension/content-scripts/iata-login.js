@@ -4,11 +4,23 @@
 // Tested against Salesforce Lightning Community login page
 // ============================================================
 
+// IMPORTANT: Only handle messages this script knows about.
+// Return false for unknown messages so other content scripts (iata-ebulletin.js) can handle them.
+const LOGIN_MESSAGE_TYPES = new Set([
+  'CHECK_LOGIN_PAGE', 'AUTO_FILL_AND_SUBMIT', 'AUTO_FILL_LOGIN',
+  'CHECK_2FA_PAGE', 'CHECK_LOGGED_IN', 'NAVIGATE_TO_BSPLINK', 'PING'
+]);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only handle messages this script is responsible for
+  if (!LOGIN_MESSAGE_TYPES.has(message.type)) {
+    return false; // Let other content scripts handle it
+  }
+
   handleMessage(message).then(sendResponse).catch(err => {
     sendResponse({ error: err.message });
   });
-  return true;
+  return true; // Keep channel open for async response
 });
 
 async function handleMessage(message) {
@@ -26,9 +38,9 @@ async function handleMessage(message) {
     case 'NAVIGATE_TO_BSPLINK':
       return navigateToBSPLink();
     case 'PING':
-      return { status: 'alive', url: window.location.href };
+      return { status: 'alive', url: window.location.href, script: 'iata-login' };
     default:
-      return { error: 'Unknown message type' };
+      return false; // Should not reach here due to guard above
   }
 }
 
