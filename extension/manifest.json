@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "APG BSP Link - Agent Status Checker",
-  "version": "4.1.0",
-  "description": "Automatise la vérification du statut Ticketing Authority sur BSP Link pour le traitement eBulletin APG Airlines",
+  "name": "APG Assistant - Agent Status Checker",
+  "version": "5.0.0",
+  "description": "Assistant APG Airlines — Verification automatisee du statut Enable/Disable des Agent Codes sur BSP Link",
   "permissions": [
     "activeTab",
     "storage",

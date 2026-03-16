@@ -1,5 +1,6 @@
 // ============================================================
-// APG eBulletin Bot - Popup Controller v4.1
+// APG Assistant - Popup Controller v5.0
+// BSP Link agent status checking (Enable/Disable)
 // Shows correct state: idle / running / done / error
 // ============================================================
 
@@ -7,6 +8,9 @@ const btn = document.getElementById('btnLaunchBot');
 const btnLabel = document.getElementById('btnLabel');
 const btnStop = document.getElementById('btnStopBot');
 const statusBox = document.getElementById('botStatus');
+
+// ---- Stage definitions ----
+const STAGE_ORDER = ['connexion', 'import', 'verification', 'export'];
 
 // ---- UI State Management ----
 function setUIState(state, stage) {
@@ -19,8 +23,8 @@ function setUIState(state, stage) {
     case 'idle':
       btn.className = 'btn-bot';
       btn.disabled = false;
-      btnLabel.textContent = 'Lancer le Bot';
-      btn.querySelector('.bot-icon').textContent = '🤖';
+      btnLabel.textContent = "Lancer l'Assistant";
+      btn.querySelector('.bot-icon').textContent = '🚀';
       statusBox.classList.remove('visible');
       btnStop.classList.remove('visible');
       break;
@@ -28,13 +32,12 @@ function setUIState(state, stage) {
     case 'running':
       btn.className = 'btn-bot running';
       btn.disabled = true;
-      btnLabel.textContent = 'Bot en cours...';
+      btnLabel.textContent = 'Assistant en cours...';
       btn.querySelector('.bot-icon').textContent = '⚡';
       statusBox.classList.add('visible');
       btnStop.classList.add('visible');
       if (stage) {
         setStage(stage, 'active');
-        // Mark all previous stages as done
         markPreviousStagesDone(stage);
       }
       break;
@@ -42,7 +45,7 @@ function setUIState(state, stage) {
     case 'done':
       btn.className = 'btn-bot';
       btn.disabled = false;
-      btnLabel.textContent = 'Relancer le Bot';
+      btnLabel.textContent = "Relancer l'Assistant";
       btn.querySelector('.bot-icon').textContent = '✅';
       statusBox.classList.add('visible');
       btnStop.classList.remove('visible');
@@ -55,8 +58,8 @@ function setUIState(state, stage) {
     case 'error':
       btn.className = 'btn-bot';
       btn.disabled = false;
-      btnLabel.textContent = 'Relancer le Bot';
-      btn.querySelector('.bot-icon').textContent = '🤖';
+      btnLabel.textContent = "Relancer l'Assistant";
+      btn.querySelector('.bot-icon').textContent = '🚀';
       statusBox.classList.add('visible');
       btnStop.classList.remove('visible');
       if (stage) {
@@ -66,8 +69,6 @@ function setUIState(state, stage) {
       break;
   }
 }
-
-const STAGE_ORDER = ['login', 'ebulletin', 'processing', 'bsplink', 'report'];
 
 function setStage(stageId, status) {
   const el = document.getElementById(`stage-${stageId}`);
@@ -85,45 +86,58 @@ function markPreviousStagesDone(currentStage) {
 function mapBotStageToPopup(botStage) {
   if (!botStage) return null;
   const s = botStage.toLowerCase();
-  if (s.includes('login') || s.includes('2fa') || s.includes('connect')) return 'login';
-  if (s.includes('ebulletin') || s.includes('bulletin') || s.includes('weekly') ||
-      s.includes('download') || s.includes('navigat') || s.includes('generate')) return 'ebulletin';
-  if (s.includes('process') || s.includes('clean') || s.includes('analy') || s.includes('nettoy')) return 'processing';
-  if (s.includes('bsp') || s.includes('scraping') || s.includes('ticketing')) return 'bsplink';
-  if (s.includes('report') || s.includes('email') || s.includes('complet') || s.includes('done') || s.includes('final')) return 'report';
-  return 'ebulletin'; // default
+
+  // Stage 1: Connexion BSP Link
+  if (s.includes('login') || s.includes('2fa') || s.includes('connect') ||
+      s.includes('connexion') || s.includes('auth')) return 'connexion';
+
+  // Stage 2: Import fichier Excel
+  if (s.includes('import') || s.includes('upload') || s.includes('excel') ||
+      s.includes('fichier') || s.includes('read')) return 'import';
+
+  // Stage 3: Verification des statuts
+  if (s.includes('verif') || s.includes('status') || s.includes('statut') ||
+      s.includes('scraping') || s.includes('ticketing') || s.includes('navigat') ||
+      s.includes('bsp') || s.includes('check') || s.includes('settings')) return 'verification';
+
+  // Stage 4: Excel final / export
+  if (s.includes('export') || s.includes('report') || s.includes('final') ||
+      s.includes('download') || s.includes('complet') || s.includes('done') ||
+      s.includes('generat')) return 'export';
+
+  return 'connexion'; // default
 }
 
-// ---- Launch Bot ----
+// ---- Launch Assistant ----
 btn.addEventListener('click', async () => {
   if (btn.disabled) return;
 
-  setUIState('running', 'login');
+  setUIState('running', 'connexion');
 
   // Save running state
   await chrome.storage.local.set({
-    currentJob: { state: 'BOT_RUNNING', stage: 'login', lastUpdate: Date.now() }
+    currentJob: { state: 'BOT_RUNNING', stage: 'connexion', lastUpdate: Date.now() }
   });
 
-  // Check if portal.iata.org is already open
-  const portalTabs = await chrome.tabs.query({ url: '*://portal.iata.org/*' });
-  if (portalTabs.length > 0) {
-    await chrome.tabs.update(portalTabs[0].id, { active: true });
+  // Check if BSP Link is already open
+  const bspTabs = await chrome.tabs.query({ url: '*://www.bsplink.iata.org/*' });
+  if (bspTabs.length > 0) {
+    await chrome.tabs.update(bspTabs[0].id, { active: true });
   } else {
     await chrome.tabs.create({
-      url: 'https://portal.iata.org/s/login/?language=en_US',
+      url: 'https://www.bsplink.iata.org/',
       active: true
     });
   }
 
-  // Open dashboard in bot mode (behind portal tab)
+  // Open dashboard in background
   chrome.tabs.create({
     url: chrome.runtime.getURL('dashboard/index.html?mode=bot'),
     active: false
   });
 });
 
-// ---- Stop Bot ----
+// ---- Stop Assistant ----
 btnStop.addEventListener('click', async () => {
   // Send reset to service worker
   chrome.runtime.sendMessage({ type: 'RESET_BOT_STATE' });
@@ -143,22 +157,22 @@ document.getElementById('openDashboard').addEventListener('click', (e) => {
 // ---- Load state on popup open ----
 async function loadState() {
   try {
-    // Ask service worker for live state
+    // Ask service worker for live state (source of truth)
     const liveState = await chrome.runtime.sendMessage({ type: 'GET_BOT_STATE' });
 
     if (liveState?.isActive) {
-      // Bot is REALLY running right now
+      // Assistant is running right now
       const popupStage = mapBotStageToPopup(liveState.stage);
       setUIState('running', popupStage);
     } else {
-      // Service worker says bot is NOT running → trust it, clean up storage
+      // Service worker says not active -> show idle, clean storage
       await chrome.storage.local.set({
         currentJob: { state: 'IDLE', stage: null, lastUpdate: Date.now() }
       });
       setUIState('idle');
     }
 
-    // Load stats
+    // Load stats from processingHistory
     const data = await chrome.storage.local.get(['processingHistory']);
     const history = data.processingHistory || [];
     document.getElementById('totalProcessed').textContent = history.length;

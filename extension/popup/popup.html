@@ -24,7 +24,7 @@
     .header .version { color: #E8871E; font-size: 10px; font-weight: 600; }
     .content { padding: 16px 20px; }
 
-    /* Bot launch button (idle state) */
+    /* Launch button (idle state) */
     .btn-bot {
       display: flex;
       align-items: center;
@@ -52,6 +52,7 @@
       position: relative;
       overflow: hidden;
     }
+    .btn-bot.running:hover { transform: none; box-shadow: none; }
     .btn-bot.running::before {
       content: '';
       position: absolute;
@@ -131,7 +132,7 @@
       gap: 8px;
       font-size: 11px;
       color: #8888aa;
-      padding: 3px 0;
+      padding: 4px 0;
     }
     .bot-status .stage.active { color: #E8871E; font-weight: 600; }
     .bot-status .stage.done { color: #4caf50; }
@@ -177,40 +178,37 @@
   <div class="header">
     <div class="logo-box"><img src="../icons/logo-apg.png" alt="APG"></div>
     <div>
-      <h1>eBulletin Bot</h1>
-      <span class="version">v4.1</span>
+      <h1>APG Assistant</h1>
+      <span class="version">v5.0</span>
     </div>
   </div>
 
   <div class="content">
     <button class="btn-bot" id="btnLaunchBot">
-      <span class="bot-icon">🤖</span>
-      <span id="btnLabel">Lancer le Bot</span>
+      <span class="bot-icon">🚀</span>
+      <span id="btnLabel">Lancer l'Assistant</span>
     </button>
 
-    <button class="btn-stop" id="btnStopBot">Arreter le Bot</button>
+    <button class="btn-stop" id="btnStopBot">Arreter l'Assistant</button>
 
     <div class="bot-status" id="botStatus">
-      <div class="stage" id="stage-login" data-stage="login">
-        <span class="stage-dot"></span> Connexion IATA Portal
+      <div class="stage" id="stage-connexion" data-stage="connexion">
+        <span class="stage-dot"></span> Connexion BSP Link
       </div>
-      <div class="stage" id="stage-ebulletin" data-stage="ebulletin">
-        <span class="stage-dot"></span> Telechargement eBulletin
+      <div class="stage" id="stage-import" data-stage="import">
+        <span class="stage-dot"></span> Import fichier Excel
       </div>
-      <div class="stage" id="stage-processing" data-stage="processing">
-        <span class="stage-dot"></span> Traitement & Analyse
+      <div class="stage" id="stage-verification" data-stage="verification">
+        <span class="stage-dot"></span> Verification des statuts
       </div>
-      <div class="stage" id="stage-bsplink" data-stage="bsplink">
-        <span class="stage-dot"></span> Scraping BSP Link
-      </div>
-      <div class="stage" id="stage-report" data-stage="report">
-        <span class="stage-dot"></span> Rapport final
+      <div class="stage" id="stage-export" data-stage="export">
+        <span class="stage-dot"></span> Excel final
       </div>
     </div>
 
     <div class="separator">ou</div>
 
-    <a href="#" class="btn-secondary" id="openDashboard">Ouvrir le Dashboard complet</a>
+    <a href="#" class="btn-secondary" id="openDashboard">Ouvrir le Dashboard</a>
 
     <div class="stats">
       <div class="stat">
@@ -224,7 +222,7 @@
     </div>
   </div>
 
-  <div class="footer">APG Airlines — Risk Management Bot</div>
+  <div class="footer">APG Airlines — Risk Management</div>
 
   <script src="popup.js"></script>
 </body>

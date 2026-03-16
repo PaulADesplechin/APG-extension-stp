@@ -1,13 +1,10 @@
 // ============================================================
-// APG BSP Link - Background Service Worker (Manifest V3)
-// Orchestrates the FULL IATA eBulletin procedure:
-//   1. IATA Portal login (manual + 2FA)
-//   2. Navigate to eBulletin service
-//   3. Click Weekly tab, generate report, download CSV
-//   4. Send data to dashboard for processing
-//   5. BSP Link TA verification per country
-//   6. IATA Code Search enrichment
-//   7. Complete with all results
+// APG Assistant - Background Service Worker (Manifest V3)
+// Orchestrates the BSP Link Agent Status verification:
+//   1. Connect to BSP Link (user manual login + 2FA)
+//   2. Wait for Excel upload (Agent Codes list)
+//   3. For each country: Ticketing Authority scraping (Enable/Disable)
+//   4. Generate final Excel with updated statuses
 // ============================================================
 
 let processingState = {
@@ -24,6 +21,9 @@ let processingState = {
   errors: [],
   skippedCountries: []
 };
+
+// Resolver for Excel upload promise (set by handleStartFullBot, resolved by EXCEL_UPLOADED message)
+let excelUploadResolver = null;
 
 // ---- Full Bot Mode State ----
 let botModeState = {
@@ -44,29 +44,17 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// ---- Tab tracking: detect new tabs opened by portal navigation ----
+// ---- Tab tracking: detect BSP Link login completion ----
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!botModeState.isActive) return;
 
-  // Detect eBulletin app tab (may open in new tab from portal tile)
   if (changeInfo.status === 'complete' && tab.url) {
     const url = tab.url.toLowerCase();
 
-    // eBulletin / AIRS / CAIRS pages
-    if (url.includes('ebulletin') || url.includes('airs') ||
-        url.includes('cairs') || url.includes('smart.iata.org') ||
-        url.includes('bulletin')) {
-      if (tabId !== botModeState.iataTabId) {
-        botModeState.ebulletinTabId = tabId;
-        console.log('[APG Bot] Detected eBulletin tab:', tabId, tab.url);
-      }
-    }
-
-    // IATA Code Search pages
-    if (url.includes('codesearch') || url.includes('code-search') ||
-        url.includes('timatic') || url.includes('iatacodesearch')) {
-      botModeState.codeSearchTabId = tabId;
-      console.log('[APG Bot] Detected Code Search tab:', tabId, tab.url);
+    // Detect BSP Link tab
+    if (url.includes('bsplink') && !botModeState.bspTabId) {
+      botModeState.bspTabId = tabId;
+      console.log('[APG Assistant] Detected BSP Link tab:', tabId, tab.url);
     }
   }
 });
@@ -137,6 +125,12 @@ chrome.runtime.onConnect.addListener((port) => {
       // ---- Full Bot Mode messages ----
       case 'START_FULL_BOT':
         await handleStartFullBot(port);
+        break;
+      case 'EXCEL_UPLOADED':
+        // Dashboard sends this when user uploads Excel with Agent Codes
+        if (excelUploadResolver) {
+          excelUploadResolver(msg.payload);
+        }
         break;
       case 'EBULLETIN_PROCESSED':
         handleEBulletinProcessed(msg.payload, port);
@@ -767,12 +761,12 @@ function handleEBulletinProcessed(payload, port) {
 }
 
 // ============================================================
-// handleStartFullBot - REAL workflow following IATA procedure
+// handleStartFullBot - NEW FLOW: BSP Link Agent Status verification
 // ============================================================
 async function handleStartFullBot(port) {
   // Prevent multiple bot instances
   if (botModeState.isActive) {
-    sendBotStatus(port, 'error', 'Le bot est deja en cours d\'execution.');
+    sendBotStatus(port, 'error', 'L\'assistant est deja en cours d\'execution.');
     return;
   }
 
@@ -793,446 +787,42 @@ async function handleStartFullBot(port) {
 
   try {
     // ================================================================
-    // STEP 1: Open or find IATA portal tab
+    // STEP 1: Open or find BSP Link tab + wait for login
     // ================================================================
-    sendBotStatus(port, 'opening_portal', 'Etape 1/7 - Ouverture du portail IATA...');
+    sendBotStatus(port, 'opening_bsplink', 'Etape 1/4 - Ouverture de BSP Link...');
 
-    let iataTab = await findIATAPortalTab();
-    if (!iataTab) {
-      iataTab = await chrome.tabs.create({
-        url: 'https://portal.iata.org/s/login/?language=en_US',
-        active: true
-      });
-      await waitForTabLoad(iataTab.id);
-      await wait(3000); // Wait for JS frameworks to render
-    }
-    botModeState.iataTabId = iataTab.id;
-    await focusTab(iataTab.id);
-
-    if (botModeState.isCancelled) return;
-
-    // ================================================================
-    // STEP 2: Check login / wait for manual login + 2FA
-    // ================================================================
-    sendBotStatus(port, 'checking_login', 'Etape 1/7 - Verification de la connexion au portail...');
-
-    // Try to inject content script in case it was not auto-injected
-    await ensureContentScript(iataTab.id, 'portal');
-
-    const alreadyLoggedIn = await sendToTab(iataTab.id, { type: 'CHECK_LOGGED_IN' });
-
-    if (!alreadyLoggedIn?.isLoggedIn) {
-      // Make sure we're on the login page
-      const tab = await chrome.tabs.get(iataTab.id);
-      if (!tab.url || !tab.url.includes('portal.iata.org')) {
-        await chrome.tabs.update(iataTab.id, {
-          url: 'https://portal.iata.org/s/login/?language=en_US'
-        });
-        await waitForTabLoad(iataTab.id);
-        await wait(3000);
-      }
-
-      sendBotStatus(port, 'waiting_login', 'Etape 1/7 - En attente de connexion manuelle + 2FA. Connectez-vous au portail IATA.', {
-        instruction: 'Connectez-vous au portail IATA avec vos identifiants et validez la 2FA. Le bot detectera automatiquement la connexion.'
-      });
-
-      // Poll for login completion (max 5 minutes for manual login + 2FA)
-      const loginSuccess = await pollForLogin(iataTab.id, port);
-      if (!loginSuccess) {
-        if (!botModeState.isCancelled) {
-          sendBotStatus(port, 'error', 'Timeout - connexion non detectee apres 5 minutes. Relancez le bot apres vous etre connecte.');
-        }
-        botModeState.isActive = false;
-        chrome.alarms.clear('keepAlive');
-        return;
-      }
-    }
-
-    sendBotStatus(port, 'logged_in', 'Etape 1/7 - Connexion au portail IATA confirmee.');
-    await focusTab(iataTab.id);
-
-    if (botModeState.isCancelled) return;
-
-    // ================================================================
-    // STEP 2: Navigate to eBulletin service
-    // Multi-strategy approach:
-    //   A) Try content script tile click (portal page — waits for tiles to load, tries "See All")
-    //   B) Try SCAN_PORTAL_SERVICES to discover correct link
-    //   C) Scan all open tabs for eBulletin
-    //   D) Try direct URL navigation via chrome.tabs.update
-    //   E) Wait for user to navigate manually (monitor all tabs)
-    // ================================================================
-    sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Navigation vers eBulletin...');
-
-    await ensureContentScript(iataTab.id, 'portal');
-    await focusTab(iataTab.id);
-    await wait(1000);
-
-    let ebulletinTabId = null;
-
-    // ---- Strategy A: Content script tile click ----
-    sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Recherche du service E-Bulletin sur le portail (attente du chargement)...');
-    // Give the content script 45s — it waits for portal tiles to load first, then tries "See All"
-    const navResult = await sendToTab(iataTab.id, { type: 'NAVIGATE_TO_EBULLETIN' }, 45000);
-
-    if (navResult?.success) {
-      await wait(5000);
-      // Check if a new tab was opened
-      if (botModeState.ebulletinTabId) {
-        ebulletinTabId = botModeState.ebulletinTabId;
-      } else {
-        // Check if portal tab navigated to eBulletin
-        const currentTab = await chrome.tabs.get(iataTab.id);
-        // VERIFY we're actually on an eBulletin page, not still on portal home
-        await ensureContentScript(iataTab.id, 'portal');
-        const pageCheck = await sendToTab(iataTab.id, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
-        if (pageCheck?.isEbulletinPage) {
-          ebulletinTabId = iataTab.id;
-          sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin confirmee: ${currentTab.url}`);
-        } else {
-          console.warn('[APG Bot] Tile click succeeded but page is not eBulletin:', currentTab.url);
-          // Don't set ebulletinTabId — fall through to next strategy
-        }
-      }
-    }
-
-    // ---- Strategy B: Scan portal for available services ----
-    if (!ebulletinTabId) {
-      sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Scan des services disponibles sur le portail...');
-      const services = await sendToTab(iataTab.id, { type: 'SCAN_PORTAL_SERVICES' }, 10000);
-
-      if (services?.services?.length > 0) {
-        // Look for eBulletin-related service
-        const ebulletinService = services.services.find(s => {
-          const t = (s.text || '').toLowerCase();
-          const h = (s.href || '').toLowerCase();
-          return t.includes('bulletin') || t.includes('airs') || t.includes('cairs') ||
-                 t.includes('e-bulletin') || t.includes('ebulletin') ||
-                 h.includes('bulletin') || h.includes('airs') || h.includes('ebulletin');
-        });
-
-        if (ebulletinService?.href) {
-          sendBotStatus(port, 'navigating_ebulletin', `Etape 2/7 - Service trouve: "${ebulletinService.text}" — navigation...`);
-          // Navigate to the discovered URL
-          await chrome.tabs.update(iataTab.id, { url: ebulletinService.href, active: true });
-          await waitForTabLoad(iataTab.id);
-          await wait(4000);
-          // Verify it's actually the eBulletin page
-          await ensureContentScript(iataTab.id, 'portal');
-          const verifyB = await sendToTab(iataTab.id, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
-          if (verifyB?.isEbulletinPage) {
-            ebulletinTabId = iataTab.id;
-          } else {
-            console.warn('[APG Bot] Strategy B: URL loaded but not eBulletin page');
-          }
-        }
-      }
-    }
-
-    // ---- Strategy C: Scan all open tabs ----
-    if (!ebulletinTabId) {
-      sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Recherche d\'un onglet eBulletin deja ouvert...');
-      const foundTab = await findEBulletinTab();
-      if (foundTab) {
-        ebulletinTabId = foundTab.id;
-        await focusTab(ebulletinTabId);
-      }
-    }
-
-    // ---- Strategy D: Try direct URLs in a new tab ----
-    if (!ebulletinTabId) {
-      sendBotStatus(port, 'navigating_ebulletin', 'Etape 2/7 - Tentative de navigation directe...');
-
-      const directUrls = [
-        'https://portal.iata.org/s/airs-cairs-online-bulletin',
-        'https://portal.iata.org/s/ebulletin',
-        'https://portal.iata.org/s/risk-management',
-        'https://portal.iata.org/s/article/eBulletin',
-        'https://portal.iata.org/s/article/AIRS-CAIRS-Online-Bulletin',
-        'https://airs.iata.org/',
-        'https://ebulletin.iata.org/',
-        'https://cairs.iata.org/'
-      ];
-
-      for (const url of directUrls) {
-        if (botModeState.isCancelled) return;
-        sendBotStatus(port, 'navigating_ebulletin', `Etape 2/7 - Essai: ${url}...`);
-        try {
-          await chrome.tabs.update(iataTab.id, { url, active: true });
-          await waitForTabLoad(iataTab.id);
-          await wait(4000);
-
-          // Check if we landed on a valid page (not login redirect, not error)
-          const tab = await chrome.tabs.get(iataTab.id);
-          const tabUrl = (tab.url || '').toLowerCase();
-
-          // If redirected to login or portal home, skip this URL
-          if (tabUrl.includes('login') || tabUrl.includes('error') || tabUrl.includes('404') ||
-              tabUrl.match(/portal\.iata\.org\/s\/?(\?.*)?$/) || tabUrl.endsWith('/s/')) {
-            continue;
-          }
-
-          // If URL looks promising, check content
-          await ensureContentScript(iataTab.id, 'portal');
-          const check = await sendToTab(iataTab.id, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
-
-          if (check?.isEbulletinPage || check?.hasWeeklyTab || check?.hasGenerateButton ||
-              check?.hasDownloadLinks || tabUrl.includes('ebulletin') || tabUrl.includes('airs.iata')) {
-            ebulletinTabId = iataTab.id;
-            sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin trouvee: ${tab.url}`);
-            break;
-          }
-        } catch (err) {
-          console.warn('[APG Bot] Direct URL failed:', url, err.message);
-        }
-      }
-    }
-
-    // ---- Strategy E: Ask user + monitor tabs ----
-    if (!ebulletinTabId) {
-      sendBotStatus(port, 'waiting_manual_nav', 'Etape 2/7 - Navigation automatique echouee. Cliquez sur le service "E-Bulletin" ou "AIRS/CAIRS Online Bulletin" sur le portail IATA. Le bot detectera automatiquement la page.', {
-        instruction: 'Naviguez manuellement vers la page E-Bulletin (AIRS/CAIRS Online Bulletin) sur le portail IATA. Le bot reprendra automatiquement.',
-        requiresUserAction: true
-      });
-
-      // Focus portal tab so user can navigate
-      await focusTab(iataTab.id);
-      // Navigate back to portal home
-      await chrome.tabs.update(iataTab.id, { url: 'https://portal.iata.org/s/' });
-      await waitForTabLoad(iataTab.id);
-
-      // Monitor ALL tabs for eBulletin URL (2 minute timeout)
-      const foundTab = await monitorTabsForUrl(
-        ['ebulletin', 'airs.iata', 'cairs.iata', 'bulletin', 'weekly'],
-        120000
-      );
-
-      if (foundTab) {
-        ebulletinTabId = foundTab.id;
-        sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin detectee: ${foundTab.url}`);
-      }
-    }
-
-    if (!ebulletinTabId) {
-      sendBotStatus(port, 'error', 'Impossible de trouver la page eBulletin apres toutes les tentatives. Verifiez que vous avez acces au service "AIRS/CAIRS Online Bulletin" sur le portail IATA.');
-      botModeState.isActive = false;
-      chrome.alarms.clear('keepAlive');
-      return;
-    }
-
-    // Focus the eBulletin tab
-    await focusTab(ebulletinTabId);
-    botModeState.ebulletinTabId = ebulletinTabId;
-
-    // Wait for page to fully load + inject content script
-    await waitForTabLoad(ebulletinTabId);
-    await wait(3000);
-    await ensureContentScript(ebulletinTabId, 'portal');
-
-    // FINAL VERIFICATION: Make sure we're really on the eBulletin page before proceeding
-    const finalCheck = await sendToTab(ebulletinTabId, { type: 'CHECK_EBULLETIN_PAGE' }, 10000);
-    if (!finalCheck?.isEbulletinPage && !finalCheck?.hasWeeklyTab && !finalCheck?.hasDownloadLinks) {
-      // Log what we found for debugging
-      const tab = await chrome.tabs.get(ebulletinTabId);
-      console.warn('[APG Bot] Final eBulletin verification FAILED. URL:', tab.url, 'Check result:', JSON.stringify(finalCheck));
-
-      // Go to Strategy E: ask user to navigate manually
-      sendBotStatus(port, 'waiting_manual_nav', 'Etape 2/7 - La page detectee n\'est pas la page eBulletin. Cliquez sur le service "AIRS/CAIRS Online Bulletin" sur le portail IATA.', {
-        instruction: 'Naviguez manuellement vers la page E-Bulletin puis le bot reprendra automatiquement.',
-        requiresUserAction: true,
-        currentUrl: tab.url
-      });
-
-      // Focus portal tab
-      await focusTab(iataTab.id);
-      await chrome.tabs.update(iataTab.id, { url: 'https://portal.iata.org/s/' });
-      await waitForTabLoad(iataTab.id);
-
-      // Monitor for eBulletin URL
-      const manualTab = await monitorTabsForUrl(
-        ['ebulletin', 'airs.iata', 'cairs.iata'],
-        180000 // 3 minutes
-      );
-
-      if (manualTab) {
-        ebulletinTabId = manualTab.id;
-        botModeState.ebulletinTabId = manualTab.id;
-        await focusTab(ebulletinTabId);
-        await waitForTabLoad(ebulletinTabId);
-        await wait(3000);
-        await ensureContentScript(ebulletinTabId, 'portal');
-        sendBotStatus(port, 'ebulletin_found', `Etape 2/7 - Page eBulletin detectee: ${manualTab.url}`);
-      } else {
-        sendBotStatus(port, 'error', 'Impossible de trouver la page eBulletin. Verifiez vos droits d\'acces au service AIRS/CAIRS Online Bulletin.');
-        botModeState.isActive = false;
-        chrome.alarms.clear('keepAlive');
-        return;
-      }
-    }
-
-    if (botModeState.isCancelled) return;
-
-    // ================================================================
-    // STEP 3: Click the "WEEKLY eBulletin" tab, generate report, download
-    // ================================================================
-    sendBotStatus(port, 'clicking_weekly_tab', 'Etape 3/7 - Selection de l\'onglet Weekly eBulletin...');
-
-    await focusTab(ebulletinTabId);
-    const weeklyTabResult = await sendToTab(ebulletinTabId, { type: 'CLICK_WEEKLY_TAB' });
-    if (weeklyTabResult?.error && !weeklyTabResult?.success) {
-      // Not critical - the weekly tab might already be selected or the page layout might differ
-      console.warn('[APG Bot] CLICK_WEEKLY_TAB warning:', weeklyTabResult.error);
-      sendBotStatus(port, 'weekly_tab_warning', 'Etape 3/7 - Onglet Weekly: ' + (weeklyTabResult.error || 'non trouve, tentative de continuer...'));
-    }
-    await wait(2000);
-
-    // ================================================================
-    // STEP 3b: Generate Weekly Report
-    // ================================================================
-    sendBotStatus(port, 'generating_report', 'Etape 3/7 - Generation du rapport hebdomadaire...');
-
-    await focusTab(ebulletinTabId);
-    const generateResult = await sendToTab(ebulletinTabId, { type: 'GENERATE_REPORT' });
-    if (generateResult?.error && !generateResult?.success) {
-      // Report generation button might not exist if report is already generated
-      console.warn('[APG Bot] GENERATE_REPORT warning:', generateResult.error);
-      sendBotStatus(port, 'generate_report_warning', 'Etape 3/7 - Generation rapport: ' + (generateResult.error || 'bouton non trouve, tentative de telecharger directement...'));
-    }
-
-    // Wait for report generation (poll until download link appears)
-    if (generateResult?.success) {
-      sendBotStatus(port, 'waiting_report', 'Etape 3/7 - En attente de la generation du rapport...');
-      await pollForReportReady(ebulletinTabId, port);
-    }
-
-    await wait(2000);
-
-    if (botModeState.isCancelled) return;
-
-    // ================================================================
-    // STEP 4: Download the eBulletin CSV/Excel file
-    // ================================================================
-    sendBotStatus(port, 'downloading_ebulletin', 'Etape 4/7 - Telechargement du fichier eBulletin...');
-
-    await focusTab(ebulletinTabId);
-    const downloadResult = await sendToTab(ebulletinTabId, { type: 'DOWNLOAD_LATEST_EBULLETIN' });
-    if (!downloadResult?.success || !downloadResult?.data) {
-      sendBotStatus(port, 'error', 'Echec du telechargement: ' + (downloadResult?.error || 'Aucun fichier eBulletin trouve sur la page.'), {
-        currentUrl: downloadResult?.currentUrl,
-        suggestion: 'Verifiez que des fichiers eBulletin sont disponibles sur la page et reessayez.'
-      });
-      botModeState.isActive = false;
-      chrome.alarms.clear('keepAlive');
-      return;
-    }
-
-    sendBotStatus(port, 'ebulletin_downloaded', 'Etape 4/7 - Fichier eBulletin telecharge avec succes.', {
-      fileName: downloadResult.fileName,
-      fileSize: downloadResult.fileSize,
-      mimeType: downloadResult.mimeType
-    });
-
-    if (botModeState.isCancelled) return;
-
-    // ================================================================
-    // STEP 5: Forward file data to dashboard for processing
-    // Dashboard will clean, detect anomalies, analyze actions
-    // ================================================================
-    sendBotStatus(port, 'sending_to_dashboard', 'Etape 4/7 - Envoi des donnees au dashboard pour traitement...');
-
-    port.postMessage({
-      type: 'EBULLETIN_DOWNLOADED',
-      payload: {
-        data: downloadResult.data,
-        fileName: downloadResult.fileName || 'ebulletin.xlsx',
-        fileSize: downloadResult.fileSize || 0,
-        mimeType: downloadResult.mimeType || 'application/octet-stream',
-        sourceUrl: downloadResult.sourceUrl || ''
-      }
-    });
-
-    // ================================================================
-    // STEP 6: Wait for dashboard to process and return rows
-    // The dashboard processes: cleaning, anomaly detection, action analysis
-    // Then sends back EBULLETIN_PROCESSED with rows to verify
-    // ================================================================
-    sendBotStatus(port, 'waiting_processing', 'Etape 4/7 - En attente du traitement par le dashboard (nettoyage, detection d\'anomalies, analyse des actions)...');
-
-    const processedData = await waitForEBulletinProcessed();
-    if (!processedData) {
-      if (!botModeState.isCancelled) {
-        sendBotStatus(port, 'error', 'Timeout - le dashboard n\'a pas renvoye les donnees traitees apres 5 minutes.');
-      }
-      botModeState.isActive = false;
-      chrome.alarms.clear('keepAlive');
-      return;
-    }
-
-    sendBotStatus(port, 'data_processed', 'Etape 4/7 - Donnees traitees par le dashboard.', {
-      rowCount: processedData.rows?.length || 0,
-      agentsToCheck: processedData.agentsToCheck?.length || processedData.rows?.length || 0
-    });
-
-    if (botModeState.isCancelled) return;
-
-    const { rows, iataColumn, countryColumn } = processedData;
-
-    // ================================================================
-    // STEP 7: BSP Link verification
-    // For each agent that needs TA check:
-    //   - Find/open BSP Link tab
-    //   - Navigate to Settings > Ticketing Authority
-    //   - For each country group: switch country, scrape agent table
-    //   - Match IATA codes, get Agent Status + TA status
-    // ================================================================
-    sendBotStatus(port, 'bsplink_starting', `Etape 5/7 - Demarrage de la verification BSP Link pour ${rows.length} agents...`);
-
-    // Find or open BSP Link tab
     let bspTab = await findBSPLinkTab();
     if (!bspTab) {
-      // Try navigating from IATA portal
-      sendBotStatus(port, 'bsplink_opening', 'Etape 5/7 - Ouverture de BSP Link...');
-      await sendToTab(iataTab.id, { type: 'NAVIGATE_TO_BSPLINK' });
-      await wait(5000);
-      bspTab = await findBSPLinkTab();
-    }
-
-    if (!bspTab) {
-      // Open BSP Link directly
-      const newBspTab = await chrome.tabs.create({
+      const newTab = await chrome.tabs.create({
         url: 'https://www.bsplink.iata.org',
         active: true
       });
-      await waitForTabLoad(newBspTab.id);
+      await waitForTabLoad(newTab.id);
       await wait(5000);
       bspTab = await findBSPLinkTab();
-    }
-
-    if (!bspTab) {
-      sendBotStatus(port, 'error', 'Impossible d\'ouvrir BSP Link. Verifiez votre connexion et que vous avez acces a BSP Link.', {
-        suggestion: 'Ouvrez manuellement bsplink.iata.org, connectez-vous, puis relancez le bot.'
-      });
-      botModeState.isActive = false;
-      chrome.alarms.clear('keepAlive');
-      return;
+      if (!bspTab) bspTab = newTab;
     }
 
     botModeState.bspTabId = bspTab.id;
     await focusTab(bspTab.id);
 
+    if (botModeState.isCancelled) return;
+
     // Check BSP Link login
     await ensureContentScript(bspTab.id, 'bsplink');
     const bspLogin = await sendToTab(bspTab.id, { type: 'CHECK_LOGIN' });
+
     if (!bspLogin?.isLoggedIn) {
-      sendBotStatus(port, 'waiting_bsp_login', 'Etape 5/7 - Non connecte a BSP Link. En attente de connexion SSO...', {
-        instruction: 'Si la connexion SSO ne fonctionne pas automatiquement, connectez-vous manuellement a BSP Link.'
+      sendBotStatus(port, 'waiting_login', 'Etape 1/4 - Connectez-vous a BSP Link (bsp@apg-ga.com) + 2FA. L\'assistant detectera automatiquement la connexion.', {
+        instruction: 'Connectez-vous a BSP Link avec vos identifiants et validez la 2FA.',
+        requiresUserAction: true
       });
 
-      // Wait for BSP Link login (SSO should work since we logged into portal)
-      const bspLoginSuccess = await pollForBSPLinkLogin(bspTab.id, port);
-      if (!bspLoginSuccess) {
+      // Poll for BSP Link login (max 5 minutes for manual login + 2FA)
+      const loginSuccess = await pollForBSPLinkLogin(bspTab.id, port, 150);
+      if (!loginSuccess) {
         if (!botModeState.isCancelled) {
-          sendBotStatus(port, 'error', 'Non connecte a BSP Link. La session SSO n\'a pas fonctionne. Connectez-vous manuellement et relancez.');
+          sendBotStatus(port, 'error', 'Timeout — connexion a BSP Link non detectee apres 5 minutes. Relancez apres vous etre connecte.');
         }
         botModeState.isActive = false;
         chrome.alarms.clear('keepAlive');
@@ -1240,10 +830,55 @@ async function handleStartFullBot(port) {
       }
     }
 
-    sendBotStatus(port, 'bsplink_connected', 'Etape 5/7 - Connecte a BSP Link. Demarrage du scraping...');
+    sendBotStatus(port, 'logged_in', 'Etape 1/4 - Connexion a BSP Link confirmee.');
     await focusTab(bspTab.id);
 
     if (botModeState.isCancelled) return;
+
+    // ================================================================
+    // STEP 2: Wait for Excel upload from dashboard
+    // The dashboard sends EXCEL_UPLOADED with rows + column mapping
+    // ================================================================
+    sendBotStatus(port, 'waiting_excel', 'Etape 2/4 - En attente de l\'upload du fichier Excel avec les Agent Codes...', {
+      instruction: 'Ouvrez le Dashboard et uploadez le fichier Excel contenant les Agent Codes a verifier.',
+      requiresUserAction: true
+    });
+
+    // Switch focus to dashboard so user can upload
+    const dashTabs = await chrome.tabs.query({ url: chrome.runtime.getURL('dashboard/*') });
+    if (dashTabs.length > 0) {
+      await focusTab(dashTabs[0].id);
+    }
+
+    const uploadedData = await waitForExcelUpload();
+    if (!uploadedData) {
+      if (!botModeState.isCancelled) {
+        sendBotStatus(port, 'error', 'Timeout — aucun fichier Excel recu apres 10 minutes.');
+      }
+      botModeState.isActive = false;
+      chrome.alarms.clear('keepAlive');
+      return;
+    }
+
+    const { rows, iataColumn, countryColumn } = uploadedData;
+
+    sendBotStatus(port, 'excel_received', `Etape 2/4 - Fichier Excel recu: ${rows.length} Agent Codes a verifier.`, {
+      rowCount: rows.length,
+      countries: [...new Set(rows.map(r => String(r[countryColumn] || 'XX').trim().toUpperCase()))]
+    });
+
+    if (botModeState.isCancelled) return;
+
+    // ================================================================
+    // STEP 3: BSP Link scraping — country by country
+    // For each country group:
+    //   - Switch country in BSP Link
+    //   - Navigate to Settings > Ticketing Authority
+    //   - Scrape agent table (all pages)
+    //   - Match Agent Codes → get Enable/Disable status
+    // ================================================================
+    await focusTab(bspTab.id);
+    sendBotStatus(port, 'bsplink_starting', `Etape 3/4 - Demarrage du scraping BSP Link pour ${rows.length} agents...`);
 
     // Run the BSP Link scraping (country-by-country)
     await runBSPLinkScraping(rows, iataColumn, countryColumn, bspTab, port);
@@ -1251,67 +886,47 @@ async function handleStartFullBot(port) {
     if (botModeState.isCancelled) return;
 
     // ================================================================
-    // STEP 8: IATA Code Search enrichment (for agents needing more info)
-    // Navigate to IATA Code Search service on portal
-    // For each agent code: search and scrape details
+    // STEP 4: Complete — send results to dashboard for Excel generation
     // ================================================================
-    const agentsNeedingEnrichment = processingState.results.filter(
-      r => r.lookupStatus === 'not_found' || r.agentStatus === 'Not Found'
-    );
+    const totalFound = processingState.results.filter(r => r.lookupStatus === 'found').length;
+    const totalNotFound = processingState.results.filter(r => r.lookupStatus === 'not_found').length;
+    const totalEnabled = processingState.results.filter(r => (r.agentStatus || '').toLowerCase().includes('enable')).length;
+    const totalDisabled = processingState.results.filter(r => (r.agentStatus || '').toLowerCase().includes('disable')).length;
 
-    if (agentsNeedingEnrichment.length > 0) {
-      sendBotStatus(port, 'code_search_starting', `Etape 6/7 - Enrichissement IATA Code Search pour ${agentsNeedingEnrichment.length} agents non trouves...`);
-
-      try {
-        const enrichedResults = await handleIATACodeSearchEnrichment(
-          agentsNeedingEnrichment, iataTab.id, port
-        );
-
-        // Merge enriched data back into results
-        for (const enriched of enrichedResults) {
-          const idx = processingState.results.findIndex(
-            r => r.iataCode === enriched.iataCode && r.country === enriched.country
-          );
-          if (idx !== -1) {
-            processingState.results[idx] = {
-              ...processingState.results[idx],
-              ...enriched,
-              enrichedViaCodeSearch: true
-            };
-          }
-        }
-
-        sendBotStatus(port, 'code_search_complete', `Etape 6/7 - Enrichissement termine. ${enrichedResults.length} agents enrichis.`, {
-          enrichedCount: enrichedResults.length,
-          totalNotFound: agentsNeedingEnrichment.length
-        });
-      } catch (enrichErr) {
-        console.error('[APG Bot] Code Search enrichment error:', enrichErr.message);
-        sendBotStatus(port, 'code_search_warning', `Etape 6/7 - Erreur enrichissement Code Search: ${enrichErr.message}. Poursuite sans enrichissement.`);
-      }
-    } else {
-      sendBotStatus(port, 'code_search_skipped', 'Etape 6/7 - Tous les agents trouves dans BSP Link, pas d\'enrichissement necessaire.');
-    }
-
-    if (botModeState.isCancelled) return;
-
-    // ================================================================
-    // STEP 9: Complete - send all results back to dashboard
-    // ================================================================
-    sendBotStatus(port, 'complete', 'Etape 7/7 - Bot mode termine avec succes!', {
+    sendBotStatus(port, 'complete', `Etape 4/4 - Verification terminee! ${totalFound} trouves, ${totalEnabled} Enable, ${totalDisabled} Disable.`, {
       results: processingState.results,
       totalProcessed: processingState.completed,
-      totalFound: processingState.results.filter(r => r.lookupStatus === 'found').length,
-      totalNotFound: processingState.results.filter(r => r.lookupStatus === 'not_found').length,
+      totalFound,
+      totalNotFound,
+      totalEnabled,
+      totalDisabled,
       totalErrors: processingState.results.filter(r => r.lookupStatus === 'error').length,
-      totalEnriched: processingState.results.filter(r => r.enrichedViaCodeSearch).length,
       errors: processingState.errors,
       skippedCountries: processingState.skippedCountries
     });
 
+    // Save to processing history
+    const historyEntry = {
+      date: Date.now(),
+      totalProcessed: processingState.completed,
+      totalFound,
+      totalNotFound,
+      totalEnabled,
+      totalDisabled
+    };
+    const histData = await chrome.storage.local.get(['processingHistory']);
+    const history = histData.processingHistory || [];
+    history.push(historyEntry);
+    await chrome.storage.local.set({ processingHistory: history });
+
+    // Update storage state
+    await chrome.storage.local.set({
+      currentJob: { state: 'DONE', stage: 'complete', lastUpdate: Date.now() }
+    });
+
   } catch (err) {
-    console.error('[APG Bot] Fatal error:', err);
-    sendBotStatus(port, 'error', `Erreur bot mode: ${err.message}`, {
+    console.error('[APG Assistant] Fatal error:', err);
+    sendBotStatus(port, 'error', `Erreur: ${err.message}`, {
       partialResults: processingState.results,
       completed: processingState.completed,
       stage: botModeState.stage
@@ -1321,7 +936,7 @@ async function handleStartFullBot(port) {
     botModeState.port = null;
     botModeState.ebulletinTabId = null;
     botModeState.codeSearchTabId = null;
-    ebulletinProcessedResolver = null;
+    excelUploadResolver = null;
     if (!processingState.isActive) {
       chrome.alarms.clear('keepAlive');
     }
@@ -1371,8 +986,8 @@ async function pollForLogin(tabId, port) {
 // ============================================================
 // Poll for BSP Link login (SSO after portal login)
 // ============================================================
-async function pollForBSPLinkLogin(tabId, port) {
-  const maxAttempts = 60; // 2 minutes at 2-second intervals
+async function pollForBSPLinkLogin(tabId, port, maxAttempts = 60) {
+  // Default: 60 attempts = 2 minutes at 2-second intervals
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (botModeState.isCancelled) return false;
 
@@ -1387,6 +1002,35 @@ async function pollForBSPLinkLogin(tabId, port) {
     await wait(2000);
   }
   return false;
+}
+
+// ============================================================
+// Wait for Excel upload from the dashboard.
+// Timeout after 10 minutes.
+// ============================================================
+function waitForExcelUpload() {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      excelUploadResolver = null;
+      resolve(null);
+    }, 10 * 60 * 1000); // 10 minute timeout
+
+    excelUploadResolver = (data) => {
+      clearTimeout(timeout);
+      excelUploadResolver = null;
+      resolve(data);
+    };
+
+    // Also resolve null if bot is cancelled
+    const cancelCheck = setInterval(() => {
+      if (botModeState.isCancelled) {
+        clearInterval(cancelCheck);
+        clearTimeout(timeout);
+        excelUploadResolver = null;
+        resolve(null);
+      }
+    }, 500);
+  });
 }
 
 // ============================================================
@@ -1408,7 +1052,7 @@ async function pollForReportReady(tabId, port) {
 
     if (attempt % 5 === 0 && attempt > 0) {
       sendBotStatus(port, 'waiting_report',
-        `Etape 3/7 - En attente de la generation du rapport... (${attempt * 2}s)`
+        `Etape 3/4 - En attente de la generation du rapport... (${attempt * 2}s)`
       );
     }
 
@@ -1513,7 +1157,7 @@ async function handleIATACodeSearchEnrichment(agentsToEnrich, portalTabId, port)
 
   try {
     // Navigate to IATA Code Search from the portal
-    sendBotStatus(port, 'code_search_navigating', 'Etape 6/7 - Navigation vers IATA Code Search...');
+    sendBotStatus(port, 'code_search_navigating', 'Etape 3/4 - Navigation vers IATA Code Search...');
 
     let codeSearchTabId = botModeState.codeSearchTabId;
 
@@ -1573,7 +1217,7 @@ async function handleIATACodeSearchEnrichment(agentsToEnrich, portalTabId, port)
 
       if (i % 5 === 0) {
         sendBotStatus(port, 'code_search_progress',
-          `Etape 6/7 - Recherche Code Search: ${i + 1}/${agentsToEnrich.length} agents...`, {
+          `Etape 3/4 - Recherche Code Search: ${i + 1}/${agentsToEnrich.length} agents...`, {
             current: i + 1,
             total: agentsToEnrich.length,
             percent: Math.round(((i + 1) / agentsToEnrich.length) * 100)
@@ -1651,7 +1295,7 @@ async function runBSPLinkScraping(rows, iataColumn, countryColumn, bspTab, port)
     }
   });
 
-  sendBotStatus(port, 'bsplink_scraping', `Etape 5/7 - Scraping BSP Link: ${countries.length} pays, ${rows.length} agents...`);
+  sendBotStatus(port, 'bsplink_scraping', `Etape 3/4 - Scraping BSP Link: ${countries.length} pays, ${rows.length} agents...`);
 
   for (let ci = 0; ci < countries.length; ci++) {
     const country = countries[ci];
@@ -1664,7 +1308,7 @@ async function runBSPLinkScraping(rows, iataColumn, countryColumn, bspTab, port)
     }
     if (!processingState.isActive || botModeState.isCancelled) break;
 
-    sendBotStatus(port, 'bsplink_country', `Etape 5/7 - Pays ${ci + 1}/${countries.length}: ${country}...`);
+    sendBotStatus(port, 'bsplink_country', `Etape 3/4 - Pays ${ci + 1}/${countries.length}: ${country}...`);
 
     // Focus BSP Link tab before each country switch
     await focusTab(bspTab.id);
