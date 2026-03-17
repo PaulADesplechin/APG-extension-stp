@@ -21,6 +21,8 @@ function log(...args) {
 // ---- Known message types ----
 const BSP_MESSAGE_TYPES = new Set([
   'CHECK_LOGIN',
+  'HANDLE_USER_DIALOG',
+  'GET_COUNTRY_LIST',
   'SELECT_ISOC_COUNTRY',
   'SUBMIT_ISOC_FORM',
   'NAVIGATE_TO_TICKETING_AUTHORITY',
@@ -50,6 +52,10 @@ async function handleMessage(message) {
   switch (message.type) {
     case 'CHECK_LOGIN':
       return checkLoginStatus();
+    case 'HANDLE_USER_DIALOG':
+      return await handleUserSelectionDialog();
+    case 'GET_COUNTRY_LIST':
+      return await getCountryList();
     case 'SELECT_ISOC_COUNTRY':
       return await selectIsocCountry(message.payload?.countryCode);
     case 'SUBMIT_ISOC_FORM':
@@ -160,6 +166,154 @@ function checkLoginStatus() {
     detectedCountry: headerCountry,
     pageType: detectPageType()
   };
+}
+
+// ============================================================
+//  HANDLE USER SELECTION DIALOG (Step 2 from spec)
+//  The popup with account table (CH, DE, FR...) + Submit
+//  Exact selectors from recorded session
+// ============================================================
+
+async function handleUserSelectionDialog() {
+  log('Handling user selection dialog...');
+
+  try {
+    // Wait for dialog to appear
+    const dialog = document.querySelector('#user-select-dialog');
+    if (!dialog) {
+      log('No #user-select-dialog found — may not be needed');
+      return { success: true, skipped: true, reason: 'no dialog' };
+    }
+
+    // Action 1: Click radio button of first row
+    // Selector: tr:nth-of-type(1) input
+    // XPath: //*[@id="user-select-dialog"]/div[2]/div/bspl-user-selection-dialog/div[2]/table/tbody/tr[1]/td[1]/input
+    const radio = dialog.querySelector('table tbody tr:first-child td:first-child input') ||
+                  dialog.querySelector('tr:nth-of-type(1) input') ||
+                  dialog.querySelector('input[type="radio"]');
+
+    if (radio) {
+      log('Clicking first radio button');
+      radio.click();
+      await sleep(500);
+    }
+
+    // Action 2: Click Submit
+    // Selector: button
+    // XPath: //*[@id="user-select-dialog"]/div[2]/div/bspl-user-selection-dialog/button
+    const submitBtn = dialog.querySelector('bspl-user-selection-dialog > button') ||
+                      dialog.querySelector('button');
+
+    if (submitBtn) {
+      log('Clicking Submit:', submitBtn.textContent.trim());
+      submitBtn.click();
+      await sleep(2000);
+    }
+
+    // Action 3: Second dialog Submit (may or may not appear)
+    // Selector: button:nth-of-type(1)
+    // XPath: //*[@id="user-select-dialog"]/div[2]/div/bspl-user-selection-dialog/div[3]/button[1]
+    try {
+      await sleep(1500);
+      const dialog2 = document.querySelector('#user-select-dialog');
+      if (dialog2) {
+        const confirm = dialog2.querySelector('bspl-user-selection-dialog div:nth-of-type(3) button:first-of-type') ||
+                        dialog2.querySelector('button');
+        if (confirm && isVisible(confirm)) {
+          log('Clicking second Submit dialog');
+          confirm.click();
+          await sleep(2000);
+        }
+      }
+    } catch (e) {
+      log('No second dialog (expected):', e.message);
+    }
+
+    await waitForLoad(10000);
+    return { success: true, pageType: detectPageType(), url: window.location.href };
+
+  } catch (e) {
+    log('Error in user dialog:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+//  GET COUNTRY LIST (Step 3 from spec)
+//  Open globe → read all country options → close without changing
+// ============================================================
+
+async function getCountryList() {
+  log('Getting country list from globe switch dialog...');
+
+  // Click globe icon in header
+  // Selector: bspl-header li:nth-of-type(2) > a
+  const globe = document.querySelector('bspl-header li:nth-of-type(2) > a') ||
+                document.querySelector('bspl-header nav ul li:nth-of-type(2) a') ||
+                findVisibleElementByText(['Switch to another BSPLink account', 'Switch'], 'a, button');
+
+  if (!globe) {
+    return { success: false, error: 'Globe icon not found', countries: [] };
+  }
+
+  log('Clicking globe icon');
+  globe.click();
+  await sleep(2000);
+
+  // Click country dropdown to open it
+  // Selector: div.dialog-container > div:nth-of-type(1) div.ng-input
+  const dropdown = document.querySelector('div.dialog-container > div:nth-of-type(1) div.ng-input') ||
+                   document.querySelector('bspl-switch-account-dialog ng-select div.ng-input') ||
+                   document.querySelector('ng-select .ng-input') ||
+                   document.querySelector('bspl-dialog ng-select');
+
+  if (!dropdown) {
+    // Try to close dialog
+    const cancel = document.querySelector('bspl-dialog bspl-button:nth-of-type(1) button');
+    if (cancel) cancel.click();
+    return { success: false, error: 'Country dropdown not found', countries: [] };
+  }
+
+  log('Clicking country dropdown');
+  dropdown.click();
+  await sleep(1500);
+
+  // Read all options
+  const options = document.querySelectorAll('ng-select .ng-dropdown-panel .ng-option, .ng-option');
+  const countries = [];
+
+  for (const opt of options) {
+    const text = opt.textContent.trim();
+    if (!text) continue;
+    // Parse "SWITZERLAND - CH" → {name, code}
+    const parts = text.rsplit ? text.split(' - ') : text.split(' - ');
+    const code = parts.length > 1 ? parts[parts.length - 1].trim() : text.substring(0, 2);
+    countries.push({ name: text, code: code });
+  }
+
+  log('Found', countries.length, 'countries');
+
+  // Close dialog WITHOUT changing — click CANCEL
+  // Selector: bspl-dialog bspl-button:nth-of-type(1) button
+  try {
+    // Press Escape first to close dropdown
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(500);
+
+    const cancel = document.querySelector('bspl-dialog bspl-button:nth-of-type(1) button') ||
+                   findVisibleElementByText(['Cancel', 'CANCEL', 'Annuler'], 'button');
+    if (cancel) {
+      log('Clicking Cancel');
+      cancel.click();
+    } else {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    }
+    await sleep(1000);
+  } catch (e) {
+    log('Error closing dialog:', e.message);
+  }
+
+  return { success: countries.length > 0, countries };
 }
 
 // ============================================================
@@ -358,60 +512,50 @@ async function navigateToTicketingAuthority() {
   }
 
   // Step 1: Click "MASTER DATA" in the top navigation
-  log('Step 1: Looking for Master Data in navigation...');
+  // Exact selector from spec: text=MASTER DATA
+  log('Step 1: Looking for MASTER DATA in navigation...');
   const masterDataEl = findNavItemByText(
-    'MASTER DATA', 'Master Data', 'Master data', 'master data',
-    'DONNÉES PRINCIPALES', 'Données principales'
-  );
+    'MASTER DATA', 'Master Data', 'Master data'
+  ) || findVisibleElementByText(['MASTER DATA', 'Master Data'], 'a, button, li, span');
 
   if (masterDataEl) {
     log('Clicking Master Data:', masterDataEl.textContent.trim());
-    masterDataEl.click();
+    const clickable = masterDataEl.closest('a') || masterDataEl.closest('button') || masterDataEl;
+    clickable.click();
     await waitForLoad(5000);
     await sleep(1500);
   } else {
-    log('Master Data not found in nav, trying broader search...');
-    // Try clicking any link/button containing "Master Data"
-    const mdLink = findVisibleElementByText(
-      ['Master Data', 'MASTER DATA', 'masterData'],
-      'a, button, li, span, div'
-    );
-    if (mdLink) {
-      const clickable = mdLink.closest('a') || mdLink.closest('button') || mdLink;
-      clickable.click();
-      await waitForLoad(5000);
-      await sleep(1500);
-    }
+    log('MASTER DATA not found in nav');
   }
 
-  // Step 2: Click "Ticketing Authority History" sub-menu
-  log('Step 2: Looking for Ticketing Authority History...');
-  await sleep(1000); // Wait for sub-menu to render
+  // Step 2: Click "Ticketing Authority" in the sub-menu
+  // Exact selector: body > div li:nth-of-type(2) span
+  // XPath: //*[@id="cdk-overlay-0"]/bspl-sub-menu/ul/li[2]/a/span
+  // Text: "Ticketing Authority"
+  log('Step 2: Looking for Ticketing Authority sub-menu...');
+  await sleep(1500); // Wait for sub-menu/overlay to render
 
-  const taEl = findNavItemByText(
-    'Ticketing Authority History', 'TICKETING AUTHORITY HISTORY',
-    'Ticketing authority history', 'TA History',
-    'Ticketing Authority', 'TICKETING AUTHORITY',
-    'Historique Autorité de billetterie'
-  );
+  // Try exact selector first (Angular CDK overlay)
+  let taEl = document.querySelector('#cdk-overlay-0 bspl-sub-menu ul li:nth-of-type(2) a span') ||
+             document.querySelector('bspl-sub-menu ul li:nth-of-type(2) a') ||
+             document.querySelector('[id^="cdk-overlay"] bspl-sub-menu li:nth-of-type(2) a');
+
+  // Fallback: text search in overlay or nav
+  if (!taEl) {
+    taEl = findVisibleElementByText(
+      ['Ticketing Authority', 'TICKETING AUTHORITY', 'Ticketing Authority History'],
+      'a, button, span, li'
+    );
+  }
 
   if (taEl) {
-    log('Clicking Ticketing Authority History:', taEl.textContent.trim());
-    taEl.click();
+    log('Clicking Ticketing Authority:', taEl.textContent.trim());
+    const clickable = taEl.closest('a') || taEl;
+    clickable.click();
     await waitForLoad(5000);
     await sleep(2000);
   } else {
-    log('Ticketing Authority History not found, trying broader search...');
-    const taLink = findVisibleElementByText(
-      ['Ticketing Authority', 'TICKETING AUTHORITY', 'Ticketing'],
-      'a, button, li, span, div'
-    );
-    if (taLink) {
-      const clickable = taLink.closest('a') || taLink.closest('button') || taLink;
-      clickable.click();
-      await waitForLoad(5000);
-      await sleep(2000);
-    }
+    log('Ticketing Authority not found in sub-menu');
   }
 
   // Step 3: Wait for the agent table to appear
@@ -449,139 +593,106 @@ async function switchCountry(targetCode) {
     return { success: true, alreadyOnCountry: true, country: current };
   }
 
-  // Strategy 1: Find "Switch to another BSP Link account" link/button
-  log('Strategy 1: Looking for "Switch to another BSP Link account"...');
-  const switchLink = findVisibleElementByText(
-    [
-      'Switch to another BSP Link account',
-      'Switch to another BSPlink account',
-      'Switch to another BSP',
-      'Switch BSP',
-      'Change BSP',
-      'Changer de compte BSP'
-    ],
-    'a, button, span, div, li'
-  );
+  // Step 1: Click globe icon in header
+  // Exact selector: bspl-header li:nth-of-type(2) > a
+  log('Clicking globe icon...');
+  const globe = document.querySelector('bspl-header li:nth-of-type(2) > a') ||
+                document.querySelector('bspl-header nav ul li:nth-of-type(2) a') ||
+                findVisibleElementByText(['Switch to another BSPLink account', 'Switch'], 'a, button');
 
-  if (switchLink) {
-    const clickable = switchLink.closest('a') || switchLink.closest('button') || switchLink;
-    log('Found switch link:', clickable.textContent.trim());
-    clickable.click();
-    await waitForLoad(5000);
-    await sleep(2000);
+  if (!globe) {
+    return { success: false, error: 'Globe icon not found', currentCountry: current };
+  }
 
-    // Now we should be back on ISOC selection — select new country
-    const selectResult = await selectIsocCountry(targetCode);
-    if (selectResult.success) {
-      const submitResult = await submitCurrentForm();
-      if (submitResult.success) {
-        // May need a second submit (user selection page)
-        await sleep(2000);
-        const pageType = detectPageType();
-        if (pageType === 'user_selection') {
-          await submitCurrentForm();
-          await sleep(2000);
-        }
-        const newCountry = detectCurrentCountry();
-        return {
-          success: true,
-          country: newCountry,
-          method: 'switch-link'
-        };
-      }
+  globe.click();
+  await sleep(2000);
+
+  // Step 2: Click country dropdown
+  // Exact selector: div.dialog-container > div:nth-of-type(1) div.ng-input
+  const dropdown = document.querySelector('div.dialog-container > div:nth-of-type(1) div.ng-input') ||
+                   document.querySelector('bspl-switch-account-dialog ng-select div.ng-input') ||
+                   document.querySelector('ng-select .ng-input');
+
+  if (!dropdown) {
+    return { success: false, error: 'Country dropdown not found in switch dialog' };
+  }
+
+  dropdown.click();
+  await sleep(1000);
+
+  // Step 3: Type country name to filter, then click matching option
+  const targetUpper = targetCode.toUpperCase();
+
+  // Type to filter
+  const input = document.querySelector('ng-select input') || dropdown.querySelector('input');
+  if (input) {
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(300);
+    // Type country code
+    for (const char of targetUpper) {
+      input.value += char;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    return { ...selectResult, method: 'switch-link-partial' };
+    await sleep(1000);
   }
 
-  // Strategy 2: Globe icon / map icon in header
-  log('Strategy 2: Looking for globe/map icon...');
-  const globeSelectors = [
-    '.fa-globe', '.fa-map', '.fa-earth',
-    'i[class*="globe"]', 'i[class*="map"]', 'i[class*="earth"]',
-    '[class*="globe"]', '[class*="country-switch"]',
-    '[class*="bsp-switch"]', '[class*="switch-bsp"]',
-    'mat-icon', '.material-icons',
-    'img[alt*="switch" i]', 'img[alt*="globe" i]', 'img[alt*="world" i]',
-    'img[src*="globe"]', 'img[src*="world"]', 'img[src*="map"]'
-  ];
-
-  for (const sel of globeSelectors) {
-    try {
-      const icons = document.querySelectorAll(sel);
-      for (const icon of icons) {
-        // Check if it's in the header area
-        const parent = icon.closest('header, nav, .navbar, [class*="header"], [class*="toolbar"]');
-        if (!parent && !isInTopArea(icon)) continue;
-
-        const clickTarget = icon.closest('a') || icon.closest('button') || icon;
-        log('Clicking globe/map icon:', sel);
-        clickTarget.click();
-        await waitForLoad(5000);
-        await sleep(2000);
-
-        // Try selecting country on new page
-        const selectResult = await selectIsocCountry(targetCode);
-        if (selectResult.success) {
-          const submitResult = await submitCurrentForm();
-          if (submitResult.success) {
-            await sleep(2000);
-            if (detectPageType() === 'user_selection') {
-              await submitCurrentForm();
-              await sleep(2000);
-            }
-            return { success: true, country: detectCurrentCountry(), method: 'globe-icon' };
-          }
-        }
-        break;
-      }
-    } catch { /* skip */ }
-  }
-
-  // Strategy 3: Look for any clickable element near the top that mentions "switch" or "change"
-  log('Strategy 3: Scanning top area for switch elements...');
-  const allLinks = document.querySelectorAll('a, button');
-  for (const link of allLinks) {
-    const text = link.textContent.trim().toLowerCase();
-    if ((text.includes('switch') || text.includes('change') || text.includes('changer')) &&
-        (text.includes('bsp') || text.includes('account') || text.includes('country') || text.includes('pays'))) {
-      if (isInTopArea(link)) {
-        log('Found switch element via scan:', text);
-        link.click();
-        await waitForLoad(5000);
-        await sleep(2000);
-
-        const selectResult = await selectIsocCountry(targetCode);
-        if (selectResult.success) {
-          const submitResult = await submitCurrentForm();
-          if (submitResult.success) {
-            await sleep(2000);
-            if (detectPageType() === 'user_selection') {
-              await submitCurrentForm();
-              await sleep(2000);
-            }
-            return { success: true, country: detectCurrentCountry(), method: 'scan-switch' };
-          }
-        }
-        break;
-      }
+  // Find and click the option matching the target country
+  const options = document.querySelectorAll('ng-select .ng-dropdown-panel .ng-option, .ng-option');
+  let clicked = false;
+  for (const opt of options) {
+    const text = opt.textContent.trim().toUpperCase();
+    if (text.includes(targetUpper) || text.endsWith(` - ${targetUpper}`)) {
+      log('Selecting country option:', opt.textContent.trim());
+      opt.click();
+      clicked = true;
+      break;
     }
   }
 
-  // Strategy 4: Direct URL navigation
-  log('Strategy 4: Trying URL-based navigation...');
-  const currentUrl = new URL(window.location.href);
-  // Replace country code in URL
-  const pathReplaced = currentUrl.pathname.replace(/\/[A-Z]{2}\//, `/${targetCode.toUpperCase()}/`);
-  if (pathReplaced !== currentUrl.pathname) {
-    window.location.href = currentUrl.origin + pathReplaced + currentUrl.search;
-    await waitForLoad(10000);
-    return { success: detectCurrentCountry() === targetCode.toUpperCase(), country: detectCurrentCountry(), method: 'url' };
+  if (!clicked) {
+    // Try aria selector: aria/COUNTRY_NAME
+    const ariaOpt = document.querySelector(`[role="option"][aria-label*="${targetUpper}"]`);
+    if (ariaOpt) {
+      ariaOpt.click();
+      clicked = true;
+    }
   }
+
+  if (!clicked) {
+    // Close and fail
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return { success: false, error: `Country ${targetCode} not found in dropdown` };
+  }
+
+  await sleep(500);
+
+  // Step 4: Click APPLY
+  // Exact selector: bspl-dialog bspl-button:nth-of-type(2) button
+  const applyBtn = document.querySelector('bspl-dialog bspl-button:nth-of-type(2) button') ||
+                   findVisibleElementByText(['APPLY', 'Apply', 'Appliquer'], 'button');
+
+  if (applyBtn) {
+    log('Clicking APPLY');
+    applyBtn.click();
+  } else {
+    return { success: false, error: 'APPLY button not found' };
+  }
+
+  // Wait for full page reload
+  await waitForLoad(15000);
+  await sleep(3000);
+
+  // Handle user selection dialog if it reappears
+  await handleUserSelectionDialog();
+
+  const newCountry = detectCurrentCountry();
+  log('Switched to:', newCountry);
 
   return {
-    success: false,
-    error: `Could not switch to country ${targetCode}. Switch link not found.`,
-    currentCountry: current
+    success: true,
+    country: newCountry,
+    method: 'globe-dialog'
   };
 }
 
@@ -640,6 +751,13 @@ function scrapeCurrentTable() {
   }
 
   const results = [];
+
+  // Check if it's an ngx-datatable (Angular)
+  if (table.tagName === 'NGX-DATATABLE' || table.querySelector('.datatable-body-row')) {
+    log('Scraping ngx-datatable...');
+    return scrapeNgxDatatable(table);
+  }
+
   const columnMap = detectColumnMapping(table);
   log('Column mapping:', JSON.stringify(columnMap));
 
@@ -655,19 +773,73 @@ function scrapeCurrentTable() {
     const agentCode = extractAgentCode(cells, columnMap);
     if (!agentCode) continue;
 
-    // Extract the action: Enable or Disable
     const action = extractAction(cells, columnMap);
 
     results.push({
       agentCode,
       agentName: getCellText(cells, columnMap.agentName),
-      action, // "Enable" or "Disable"
+      action,
       agentStatus: extractAgentStatus(cells, columnMap),
       ticketingAuthority: extractTicketingAuthority(cells, columnMap),
       rawRow: Array.from(cells).map(c => c.textContent.trim())
     });
   }
 
+  return results;
+}
+
+/**
+ * Scrape ngx-datatable (Angular DataTable component)
+ * BSPLink uses this for the Ticketing Authority History table.
+ * Columns: BSP | Agent Code | Agent Name | Date/Time | Action | Performed by | Email
+ */
+function scrapeNgxDatatable(ngxTable) {
+  const results = [];
+
+  // Get header columns
+  const headerCells = ngxTable.querySelectorAll('.datatable-header-cell');
+  const headers = Array.from(headerCells).map(h => h.textContent.trim().toLowerCase());
+  log('ngx-datatable headers:', headers);
+
+  // Map columns
+  const colMap = {};
+  headers.forEach((h, i) => {
+    if (h.includes('agent code') || h === 'code') colMap.agentCode = i;
+    else if (h.includes('agent name') || h === 'name') colMap.agentName = i;
+    else if (h.includes('action')) colMap.action = i;
+    else if (h.includes('date')) colMap.dateTime = i;
+    else if (h.includes('bsp')) colMap.bsp = i;
+    else if (h.includes('performed')) colMap.performedBy = i;
+    else if (h.includes('email')) colMap.email = i;
+  });
+
+  // Get data rows
+  const rows = ngxTable.querySelectorAll('.datatable-body-row');
+  for (const row of rows) {
+    const cells = row.querySelectorAll('.datatable-body-cell');
+    if (cells.length < 2) continue;
+
+    const getText = (idx) => idx !== undefined && idx < cells.length
+      ? cells[idx]?.textContent?.trim() || '' : '';
+
+    const agentCode = getText(colMap.agentCode);
+    if (!agentCode || !/^\d{5,8}$/.test(agentCode.replace(/[-\s]/g, ''))) continue;
+
+    const action = getText(colMap.action);
+
+    results.push({
+      agentCode: agentCode.replace(/[-\s]/g, ''),
+      agentName: getText(colMap.agentName),
+      action: action,
+      dateTime: getText(colMap.dateTime),
+      bsp: getText(colMap.bsp),
+      performedBy: getText(colMap.performedBy),
+      email: getText(colMap.email),
+      rawRow: Array.from(cells).map(c => c.textContent.trim())
+    });
+  }
+
+  log('Scraped', results.length, 'agents from ngx-datatable');
   return results;
 }
 
@@ -976,7 +1148,19 @@ function isDisabledButton(el) {
 // ============================================================
 
 function findFirstTable() {
-  // Try specific selectors first
+  // BSPLink uses ngx-datatable (Angular component)
+  // Try ngx-datatable first
+  const ngxTable = document.querySelector('ngx-datatable');
+  if (ngxTable && isVisible(ngxTable)) {
+    // ngx-datatable has its own row structure
+    const rows = ngxTable.querySelectorAll('.datatable-body-row');
+    if (rows.length > 0) {
+      log('Found ngx-datatable with', rows.length, 'rows');
+      return ngxTable;
+    }
+  }
+
+  // Try specific selectors
   const specificSelectors = [
     'table[class*="agent"]', 'table[class*="ticketing"]',
     'table.table', 'table.table-striped', 'table.dataTable',
@@ -1005,6 +1189,10 @@ function countTableRows(table) {
     table = findFirstTable();
     if (!table) return 0;
   }
+  // ngx-datatable
+  const ngxRows = table.querySelectorAll('.datatable-body-row');
+  if (ngxRows.length > 0) return ngxRows.length;
+  // Regular table
   const tbody = table.querySelector('tbody');
   if (tbody) return tbody.querySelectorAll('tr').length;
   return Math.max(0, table.querySelectorAll('tr').length - 1);

@@ -937,40 +937,29 @@ async function handleStartFullBot(port) {
     sendBotStatus(port, 'logged_in', 'Etape 1/4 - Connecte a BSP Link!');
     await focusTab(bspTab.id);
 
-    // Handle initial ISOC selection page (if we land on it)
+    // Handle user selection dialog (ISOC → radio → Submit → Submit)
+    sendBotStatus(port, 'navigating_bsplink', 'Etape 1/4 - Gestion du dialog de selection...');
     await ensureContentScript(bspTab.id, 'bsplink');
-    const pageInfo = await sendToTab(bspTab.id, { type: 'GET_PAGE_INFO' });
+    const dialogResult = await sendToTab(bspTab.id, { type: 'HANDLE_USER_DIALOG' }, 20000);
+    console.log('[APG Bot] User dialog result:', JSON.stringify(dialogResult));
 
-    if (pageInfo?.pageType === 'isoc_selection') {
-      sendBotStatus(port, 'navigating_bsplink', 'Etape 1/4 - Page ISOC detectee, selection du premier pays disponible...');
+    await wait(3000);
+    await ensureContentScript(bspTab.id, 'bsplink');
 
-      // Get available countries from the select dropdown
-      if (pageInfo.selectElements?.[0]) {
-        const firstCountryOption = pageInfo.selectElements.find(s => s.optionCount > 1);
-        if (firstCountryOption?.firstOptions?.[1]) {
-          // Select any country to get past the ISOC page — we'll switch later per country
-          const selectResult = await sendToTab(bspTab.id, {
-            type: 'SELECT_ISOC_COUNTRY',
-            payload: { countryCode: firstCountryOption.firstOptions[1] }
-          }, 10000);
+    // Get full country list from the globe switch dialog
+    sendBotStatus(port, 'getting_countries', 'Etape 1/4 - Recuperation de la liste des pays...');
+    const countryResult = await sendToTab(bspTab.id, { type: 'GET_COUNTRY_LIST' }, 30000);
+    const allCountries = countryResult?.countries || [];
+    console.log('[APG Bot] Countries found:', allCountries.length);
 
-          if (selectResult?.success) {
-            const submitResult = await sendToTab(bspTab.id, { type: 'SUBMIT_ISOC_FORM' }, 15000);
-            await wait(3000);
-
-            // Check if we need a second submit (user selection page)
-            await ensureContentScript(bspTab.id, 'bsplink');
-            const newPageInfo = await sendToTab(bspTab.id, { type: 'GET_PAGE_INFO' });
-            if (newPageInfo?.pageType === 'user_selection') {
-              await sendToTab(bspTab.id, { type: 'SUBMIT_ISOC_FORM' }, 15000);
-              await wait(3000);
-            }
-          }
-        }
-      }
+    if (allCountries.length > 0) {
+      sendBotStatus(port, 'logged_in', `Etape 1/4 - BSP Link pret! ${allCountries.length} pays disponibles.`);
+    } else {
+      sendBotStatus(port, 'logged_in', 'Etape 1/4 - BSP Link pret! (liste pays non recuperee, sera deduite du fichier)');
     }
 
-    sendBotStatus(port, 'logged_in', 'Etape 1/4 - BSP Link pret!');
+    // Store countries in bot state for Step 3
+    botModeState.allCountries = allCountries;
 
     if (botModeState.isCancelled) return;
 
