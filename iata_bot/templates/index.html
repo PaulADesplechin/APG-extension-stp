@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APG Assistant — BSPLink Bot</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d2e;
+      --border: #2a2d3e;
+      --accent: #e8a838;
+      --accent2: #3b82f6;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --text: #e4e4e7;
+      --muted: #71717a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 700px;
+      width: 100%;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 16px;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: var(--accent);
+    }
+
+    .upload-zone.uploaded {
+      border-color: var(--green);
+      border-style: solid;
+    }
+
+    .upload-zone p {
+      color: var(--muted);
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .upload-zone .filename {
+      color: var(--green);
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    #fileInput { display: none; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #d49730;
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-download {
+      background: var(--green);
+      color: #000;
+    }
+
+    .btn-download:hover {
+      background: #16a34a;
+    }
+
+    /* Progress */
+    .progress-section { display: none; }
+    .progress-section.visible { display: block; }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 28px;
+      background: var(--bg);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 14px;
+      transition: width 0.5s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: #000;
+      min-width: 40px;
+    }
+
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .progress-country {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    .status-message {
+      font-size: 14px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    /* Result */
+    .result-section { display: none; }
+    .result-section.visible { display: block; }
+
+    .result-success {
+      text-align: center;
+      padding: 24px;
+    }
+
+    .result-success .icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+
+    .result-success h3 {
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+
+    /* Errors */
+    .error-section { display: none; }
+    .error-section.visible { display: block; }
+
+    .error-message {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 16px;
+      color: var(--red);
+      font-size: 14px;
+    }
+
+    .error-list {
+      margin-top: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .error-item {
+      background: rgba(239, 68, 68, 0.05);
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .error-item strong {
+      color: var(--yellow);
+    }
+
+    /* Log */
+    .log-section {
+      margin-top: 16px;
+    }
+
+    .log-toggle {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      text-decoration: underline;
+    }
+
+    .log-entries {
+      display: none;
+      max-height: 300px;
+      overflow-y: auto;
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 8px;
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .log-entries.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>APG Assistant</h1>
+      <p>Verification automatique des statuts Enable/Disable sur BSP Link</p>
+    </div>
+
+    <!-- STEP 1: Upload -->
+    <div class="card" id="uploadCard">
+      <h2>1. Fichier eBulletin CSV</h2>
+      <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+        <div id="uploadLabel">
+          <div style="font-size: 32px; margin-bottom: 8px;">📄</div>
+          <div>Cliquez ou glissez votre fichier eBulletin ici</div>
+          <p>Format accepte : .csv</p>
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept=".csv,.txt">
+    </div>
+
+    <!-- STEP 2: Launch -->
+    <div class="card">
+      <h2>2. Lancer l'Assistant</h2>
+      <p style="color: var(--muted); font-size: 13px; margin-bottom: 16px;">
+        Assurez-vous d'etre connectee sur portal.iata.org avant de lancer.
+      </p>
+      <button class="btn btn-primary" id="startBtn" disabled>
+        Lancer le Bot
+      </button>
+    </div>
+
+    <!-- Progress -->
+    <div class="card progress-section" id="progressSection">
+      <h2>Progression</h2>
+      <div class="progress-country" id="progressCountry">Demarrage...</div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar" id="progressBar" style="width: 0%;">0%</div>
+      </div>
+      <div class="progress-info">
+        <span id="progressStage">Initialisation...</span>
+        <span id="progressCount">0 / 0 pays</span>
+      </div>
+      <div class="status-message" id="statusMessage"></div>
+    </div>
+
+    <!-- Result -->
+    <div class="card result-section" id="resultSection">
+      <div class="result-success">
+        <div class="icon">✅</div>
+        <h3>Traitement termine !</h3>
+        <p id="resultMessage" style="color: var(--muted); margin-bottom: 20px;"></p>
+        <button class="btn btn-download" id="downloadBtn" onclick="window.location.href='/download'">
+          Telecharger le rapport Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- Errors -->
+    <div class="card error-section" id="errorSection">
+      <div class="error-message" id="errorMessage"></div>
+      <div class="error-list" id="errorList"></div>
+    </div>
+
+    <!-- Log -->
+    <div class="log-section">
+      <button class="log-toggle" id="logToggle" onclick="toggleLog()">Afficher les logs</button>
+      <div class="log-entries" id="logEntries"></div>
+    </div>
+  </div>
+
+  <script>
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const startBtn = document.getElementById('startBtn');
+    const progressSection = document.getElementById('progressSection');
+    const resultSection = document.getElementById('resultSection');
+    const errorSection = document.getElementById('errorSection');
+
+    let pollInterval = null;
+
+    // ---- Upload ----
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      await uploadFile(file);
+    });
+
+    // Drag & drop
+    uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) await uploadFile(file);
+    });
+
+    async function uploadFile(file) {
+      const fd = new FormData();
+      fd.append('file', file);
+
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.success) {
+          uploadZone.classList.add('uploaded');
+          document.getElementById('uploadLabel').innerHTML =
+            `<div class="filename">✅ ${data.filename}</div><p>Fichier pret</p>`;
+          startBtn.disabled = false;
+        } else {
+          alert(data.error || 'Erreur upload');
+        }
+      } catch (err) {
+        alert('Erreur de connexion: ' + err.message);
+      }
+    }
+
+    // ---- Start Bot ----
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = 'Bot en cours...';
+      progressSection.classList.add('visible');
+      resultSection.classList.remove('visible');
+      errorSection.classList.remove('visible');
+
+      try {
+        const res = await fetch('/start', { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+          showError(data.error);
+          startBtn.disabled = false;
+          startBtn.textContent = 'Lancer le Bot';
+          return;
+        }
+        // Start polling
+        pollInterval = setInterval(pollProgress, 1000);
+      } catch (err) {
+        showError('Erreur: ' + err.message);
+        startBtn.disabled = false;
+        startBtn.textContent = 'Lancer le Bot';
+      }
+    });
+
+    // ---- Poll Progress ----
+    async function pollProgress() {
+      try {
+        const res = await fetch('/progress');
+        const state = await res.json();
+
+        // Update progress bar
+        const pct = state.percent || 0;
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('progressBar').textContent = pct + '%';
+
+        // Update info
+        document.getElementById('progressCountry').textContent = state.country || state.stage || '';
+        document.getElementById('progressStage').textContent = state.message || '';
+        document.getElementById('progressCount').textContent =
+          state.total > 0 ? `${state.current} / ${state.total} pays` : '';
+        document.getElementById('statusMessage').textContent = state.message || '';
+
+        // Log
+        addLog(state.message);
+
+        // Check completion
+        if (state.status === 'done') {
+          clearInterval(pollInterval);
+          progressSection.classList.remove('visible');
+          resultSection.classList.add('visible');
+          document.getElementById('resultMessage').textContent = state.message;
+          startBtn.textContent = 'Lancer le Bot';
+          startBtn.disabled = false;
+
+          // Show errors if any
+          if (state.errors && state.errors.length > 0) {
+            showCountryErrors(state.errors);
+          }
+        }
+
+        if (state.status === 'error') {
+          clearInterval(pollInterval);
+          showError(state.message);
+          startBtn.textContent = 'Lancer le Bot';
+          startBtn.disabled = false;
+
+          if (state.errors && state.errors.length > 0) {
+            showCountryErrors(state.errors);
+          }
+        }
+      } catch (err) {
+        // Ignore transient fetch errors
+      }
+    }
+
+    function showError(msg) {
+      errorSection.classList.add('visible');
+      document.getElementById('errorMessage').textContent = msg;
+    }
+
+    function showCountryErrors(errors) {
+      errorSection.classList.add('visible');
+      const list = document.getElementById('errorList');
+      list.innerHTML = errors.map(e =>
+        `<div class="error-item"><strong>${e.country}</strong>: ${e.error}</div>`
+      ).join('');
+    }
+
+    // ---- Log ----
+    const logMessages = new Set();
+    function addLog(msg) {
+      if (!msg || logMessages.has(msg)) return;
+      logMessages.add(msg);
+      const el = document.getElementById('logEntries');
+      const time = new Date().toLocaleTimeString('fr-FR');
+      el.innerHTML += `<div>${time} — ${msg}</div>`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function toggleLog() {
+      document.getElementById('logEntries').classList.toggle('visible');
+    }
+  </script>
+</body>
+</html>
